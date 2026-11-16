@@ -97,6 +97,10 @@ local function SafeLessThan(current, maximum)
 end
 
 local function PlayerHasRegenAura()
+    -- Food and drink effects cannot be used in combat. Aura data can become a
+    -- protected secret there, so do not query it from tainted addon code.
+    if _G.InCombatLockdown and InCombatLockdown() then return false end
+
     if _G.C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
         for index = 1, 40 do
             local aura = C_UnitAuras.GetAuraDataByIndex("player", index, "HELPFUL")

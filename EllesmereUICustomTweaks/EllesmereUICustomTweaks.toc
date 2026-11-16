@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Update-safe personal unit-frame, flight timer, and chat refinements for EllesmereUI.
 ## Author: Jeremy Tilden
-## Version: 1.2.0
+## Version: 1.2.1
 ## Dependencies: EllesmereUI, EllesmereUIChat
 ## OptionalDeps: EllesmereUIForeverEssentials, EllesmereUIUnitFrames
 ## SavedVariables: EllesmereUICustomTweaksDB
