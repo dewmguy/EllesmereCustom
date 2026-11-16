@@ -26,6 +26,7 @@ local DEFAULTS = {
     showPlayerOnMissingMana = true,
     showPlayerWhileEating = true,
     showPlayerWhileChanneling = true,
+    alwaysGatheringTracking = true,
 }
 ns.DEFAULTS = DEFAULTS
 
@@ -57,6 +58,128 @@ local tabsLastInteraction = 0
 local tabsInteracting = false
 local tabsShown = true
 local chromeElapsed = 0
+
+-------------------------------------------------------------------------------
+-- Gathering minimap tracking. WoW Forever exposes Find Herbs and Find
+-- Minerals as spell-backed minimap trackers. Keep the last gathering tracker
+-- used by each character selected; if none has been chosen yet, prefer the
+-- first one the character knows. Class tracking remains untouched unless it
+-- replaces the enforced gathering tracker.
+-------------------------------------------------------------------------------
+local GATHERING_TRACKERS = { 2383, 2580 } -- Find Herbs, Find Minerals
+local gatheringEvents
+local gatheringTimer
+local gatheringLastAttempt = 0
+
+local function GatheringSpellKnown(spellID)
+    if C_SpellBook and C_SpellBook.IsSpellKnown then
+        return C_SpellBook.IsSpellKnown(spellID) == true
+    end
+    if IsPlayerSpell then return IsPlayerSpell(spellID) == true end
+    return IsSpellKnown and IsSpellKnown(spellID) == true or false
+end
+
+local function GatheringCharacterKey()
+    local guid = UnitGUID("player")
+    if type(guid) == "string" and not IsSecret(guid) then return guid end
+end
+
+local function GatheringChoices()
+    local db = DB()
+    if type(db.gatheringTrackingByCharacter) ~= "table" then
+        db.gatheringTrackingByCharacter = {}
+    end
+    return db.gatheringTrackingByCharacter
+end
+
+local function RememberGatheringTracker(spellID)
+    local key = GatheringCharacterKey()
+    if key then GatheringChoices()[key] = spellID end
+end
+
+-- Returns the active gathering spell and its minimap index. The index is also
+-- needed to restore a spell through Blizzard's tracking API.
+local function ActiveGatheringTracker()
+    if not (C_Minimap and C_Minimap.GetNumTrackingTypes and C_Minimap.GetTrackingInfo) then return end
+    for index = 1, C_Minimap.GetNumTrackingTypes() do
+        local info = C_Minimap.GetTrackingInfo(index)
+        if info and info.type == "spell" then
+            for i = 1, #GATHERING_TRACKERS do
+                if info.spellID == GATHERING_TRACKERS[i] then
+                    if info.active then return info.spellID, index end
+                end
+            end
+        end
+    end
+end
+
+local function DesiredGatheringTracker()
+    local key = GatheringCharacterKey()
+    local saved = key and GatheringChoices()[key]
+    if saved and GatheringSpellKnown(saved) then return saved end
+    for i = 1, #GATHERING_TRACKERS do
+        local spellID = GATHERING_TRACKERS[i]
+        if GatheringSpellKnown(spellID) then return spellID end
+    end
+end
+
+local function RestoreGatheringTracker()
+    gatheringTimer = nil
+    if not ns.Get("alwaysGatheringTracking") or not EUI.IS_FOREVER then return end
+    if InCombatLockdown and InCombatLockdown() then return end
+    if UnitIsDeadOrGhost and UnitIsDeadOrGhost("player") then return end
+
+    local active = ActiveGatheringTracker()
+    if active then
+        RememberGatheringTracker(active)
+        return
+    end
+
+    local desired = DesiredGatheringTracker()
+    if not desired then return end
+    local setter = C_Minimap and C_Minimap.SetTracking
+    if not setter then return end
+
+    local now = GetTime()
+    if now - gatheringLastAttempt < 0.75 then return end
+    for index = 1, C_Minimap.GetNumTrackingTypes() do
+        local info = C_Minimap.GetTrackingInfo(index)
+        if info and info.spellID == desired then
+            gatheringLastAttempt = now
+            pcall(setter, index, true)
+            return
+        end
+    end
+end
+
+local function QueueGatheringRestore(delay)
+    if gatheringTimer then gatheringTimer:Cancel() end
+    gatheringTimer = C_Timer.NewTimer(delay or 0.20, RestoreGatheringTracker)
+end
+
+local function SyncGatheringTrackingEvents()
+    if not gatheringEvents then
+        gatheringEvents = CreateFrame("Frame")
+        gatheringEvents:SetScript("OnEvent", function(_, event, unit)
+            if event == "UNIT_AURA" and unit ~= "player" then return end
+            QueueGatheringRestore(event == "PLAYER_ENTERING_WORLD" and 1 or 0.20)
+        end)
+    end
+
+    gatheringEvents:UnregisterAllEvents()
+    if gatheringTimer then gatheringTimer:Cancel(); gatheringTimer = nil end
+    if not ns.Get("alwaysGatheringTracking") or not EUI.IS_FOREVER then return end
+
+    for _, event in ipairs({
+        "PLAYER_ENTERING_WORLD", "PLAYER_ALIVE", "PLAYER_UNGHOST",
+        "PLAYER_REGEN_ENABLED", "MINIMAP_UPDATE_TRACKING",
+        "LEARNED_SPELL_IN_SKILL_LINE", "SPELLS_CHANGED",
+    }) do
+        gatheringEvents:RegisterEvent(event)
+    end
+    gatheringEvents:RegisterUnitEvent("UNIT_AURA", "player")
+    QueueGatheringRestore(0)
+end
 
 -------------------------------------------------------------------------------
 -- Player unit-frame conditional reveals. Ellesmere keeps visibility on a
@@ -627,6 +750,7 @@ function ns.ApplyAll()
     ApplyChatChrome()
     ApplyFlightSetting()
     SyncPlayerRevealEvents()
+    SyncGatheringTrackingEvents()
 
     local wins = ChatWins()
     if wins then

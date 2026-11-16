@@ -47,6 +47,15 @@ local function RegisterOptions()
         if EUI.ClearContentHeader then EUI:ClearContentHeader() end
         parent._showRowDivider = true
 
+        if EUI.IS_FOREVER then
+            _, h = W:SectionHeader(parent, "MINIMAP", y); y = y - h
+            _, h = W:DualRow(parent, y,
+                Toggle("alwaysGatheringTracking", "Always Enable Gathering Tracking",
+                    "Keeps your last-used Find Herbs or Find Minerals minimap tracker enabled after login, zoning, death, or another tracker replacing it."),
+                nil)
+            y = y - h
+        end
+
         _, h = W:SectionHeader(parent, "FLIGHT TIMER", y); y = y - h
         _, h = W:DualRow(parent, y,
             Toggle("hideFlightYou", "Hide Center 'You' Label",
@@ -173,10 +182,10 @@ local function RegisterOptions()
 
     EUI:RegisterModule(ADDON_NAME, {
         title = "Custom Tweaks",
-        description = "Personal unit-frame, flight timer, and chat refinements for EllesmereUI.",
+        description = "Personal minimap, unit-frame, flight timer, and chat refinements for EllesmereUI.",
         pages = { "Tweaks" },
         buildPage = BuildPage,
-        searchTerms = "custom tweaks player unit frame health mana eating drinking channeling flight timer you chat fade history tabs collapse input border channel",
+        searchTerms = "custom tweaks minimap profession gathering tracking herbs minerals player unit frame health mana eating drinking channeling flight timer you chat fade history tabs collapse input border channel",
         onReset = function()
             ns.Reset()
             if EUI.InvalidatePageCache then EUI:InvalidatePageCache() end

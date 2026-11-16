@@ -2,9 +2,9 @@
 ## Title: |cff0cd29fEllesmereUI|r Custom Tweaks
 ## Category: |cff0cd29fEllesmere|rUI
 ## Group: EllesmereUI
-## Notes: Update-safe personal unit-frame, flight timer, and chat refinements for EllesmereUI.
+## Notes: Update-safe personal minimap, unit-frame, flight timer, and chat refinements for EllesmereUI.
 ## Author: Jeremy Tilden
-## Version: 1.2.1
+## Version: 1.3.0
 ## Dependencies: EllesmereUI, EllesmereUIChat
 ## OptionalDeps: EllesmereUIForeverEssentials, EllesmereUIUnitFrames
 ## SavedVariables: EllesmereUICustomTweaksDB
