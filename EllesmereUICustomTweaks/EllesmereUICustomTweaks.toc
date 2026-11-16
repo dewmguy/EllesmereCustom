@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Update-safe personal flight timer and chat refinements for EllesmereUI.
 ## Author: Jeremy Tilden
-## Version: 1.1.0
+## Version: 1.1.1
 ## Dependencies: EllesmereUI, EllesmereUIChat
 ## OptionalDeps: EllesmereUIForeverEssentials
 ## SavedVariables: EllesmereUICustomTweaksDB

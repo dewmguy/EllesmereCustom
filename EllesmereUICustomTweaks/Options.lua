@@ -92,18 +92,64 @@ local function RegisterOptions()
         y = y - h
 
         local borderDisabled = function() return not ns.Get("channelInputBorder") end
-        local borderRow
-        borderRow, h = W:DualRow(parent, y,
-            { type = "dropdown", text = "Input Border Color",
-              tooltip = "Custom Color uses the saved swatch, Accent Color follows EllesmereUI, and Channel Color follows Say, Party, Guild, Whisper, or the selected numbered channel.",
-              values = { custom = "Custom Color", accent = "Accent Color", channel = "Channel Color" },
-              order = { "custom", "accent", "channel" },
+        local function SetBorderColorMode(mode)
+            if borderDisabled() then return end
+            ns.Set("inputBorderColorMode", mode)
+            ns.ApplyAll()
+            EUI:RefreshPage()
+        end
+        local function ChannelColor()
+            local editBox = _G.ChatFrame1EditBox
+            local focus = editBox and editBox.focusLeft
+            if focus and focus.GetVertexColor then
+                local r, g, b = focus:GetVertexColor()
+                return r or 1, g or 1, b or 1, 1
+            end
+            local color = _G.ChatTypeInfo and _G.ChatTypeInfo.SAY
+            return color and color.r or 1, color and color.g or 1, color and color.b or 1, 1
+        end
+        _, h = W:DualRow(parent, y,
+            { type = "multiSwatch", text = "Input Border Color",
               disabled = borderDisabled,
-              getValue = function() return ns.Get("inputBorderColorMode") or "channel" end,
-              setValue = function(value)
-                  ns.Set("inputBorderColorMode", value)
-                  EUI:RefreshPage()
-              end },
+              swatches = {
+                  { tooltip = "Custom Color", hasAlpha = true,
+                    getValue = function()
+                        local c = ns.Get("inputBorderColor") or ns.DEFAULTS.inputBorderColor
+                        return c.r, c.g, c.b, c.a == nil and 1 or c.a
+                    end,
+                    setValue = function(r, g, b, a)
+                        ns.Set("inputBorderColor", { r = r, g = g, b = b, a = a })
+                        ns.Set("inputBorderColorMode", "custom")
+                        ns.ApplyAll()
+                    end,
+                    onClick = function(self)
+                        if ns.Get("inputBorderColorMode") ~= "custom" then
+                            SetBorderColorMode("custom")
+                            return
+                        end
+                        if self._eabOrigClick then self._eabOrigClick(self) end
+                    end,
+                    refreshAlpha = function()
+                        return ns.Get("inputBorderColorMode") == "custom" and 1 or 0.3
+                    end },
+                  { tooltip = "Accent Color", hasAlpha = false,
+                    getValue = function()
+                        if EUI.GetAccentColor then return EUI.GetAccentColor() end
+                        return 1, 1, 1, 1
+                    end,
+                    setValue = function() end,
+                    onClick = function() SetBorderColorMode("accent") end,
+                    refreshAlpha = function()
+                        return ns.Get("inputBorderColorMode") == "accent" and 1 or 0.3
+                    end },
+                  { tooltip = "Channel Color", hasAlpha = false,
+                    getValue = ChannelColor,
+                    setValue = function() end,
+                    onClick = function() SetBorderColorMode("channel") end,
+                    refreshAlpha = function()
+                        return (ns.Get("inputBorderColorMode") or "channel") == "channel" and 1 or 0.3
+                    end },
+              } },
             EUI.BorderPxSliderCfg{
               text = "Input Border Size", max = 8,
               disabled = borderDisabled,
@@ -113,43 +159,6 @@ local function RegisterOptions()
               getPx = function() return ns.Get("inputBorderSizePx") end,
               setPx = function(value) ns.Set("inputBorderSizePx", value) end,
               apply = ns.ApplyAll })
-        if not EUI._prebuilding then
-            local region = borderRow._leftRegion
-            local control = region._control
-            local swatch, refreshSwatch = EUI.BuildColorSwatch(
-                region, borderRow:GetFrameLevel() + 3,
-                function()
-                    local c = ns.Get("inputBorderColor") or ns.DEFAULTS.inputBorderColor
-                    return c.r, c.g, c.b, c.a == nil and 1 or c.a
-                end,
-                function(r, g, b, a)
-                    ns.Set("inputBorderColor", { r = r, g = g, b = b, a = a })
-                    ns.Set("inputBorderColorMode", "custom")
-                end,
-                true, 20)
-            EUI.PanelPP.Point(swatch, "RIGHT", control, "LEFT", -8, 0)
-            local originalClick = swatch:GetScript("OnClick")
-            swatch:SetScript("OnClick", function(self, ...)
-                if borderDisabled() then return end
-                if ns.Get("inputBorderColorMode") ~= "custom" then
-                    ns.Set("inputBorderColorMode", "custom")
-                    EUI:RefreshPage()
-                    return
-                end
-                if originalClick then originalClick(self, ...) end
-            end)
-            swatch:SetScript("OnEnter", function()
-                EUI.ShowWidgetTooltip(swatch, "Custom Input Border Color")
-            end)
-            swatch:SetScript("OnLeave", EUI.HideWidgetTooltip)
-            local function RefreshSwatch()
-                refreshSwatch()
-                local active = not borderDisabled() and ns.Get("inputBorderColorMode") == "custom"
-                swatch:SetAlpha(active and 1 or 0.3)
-            end
-            EUI.RegisterWidgetRefresh(RefreshSwatch)
-            RefreshSwatch()
-        end
         y = y - h
 
         return math.abs(y)
