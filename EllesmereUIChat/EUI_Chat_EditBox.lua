@@ -228,21 +228,21 @@ local function SkinEditBox(cf)
     if not eb or not idx or CFD(eb).skinned then return end
     CFD(eb).skinned = true
 
-    -- Stock styles keep Blizzard's own input box: its art (and the chat-type
-    -- focus border), anchors, height and text insets are left alone; only
-    -- the font follows the chat's, like the chat text itself. WoW Forever
-    -- hides that art like the EllesmereUI look and seats the box in its kit.
+    -- Stock styles keep Blizzard's own input box: its art, anchors, height and
+    -- text insets are left alone; only the font follows the chat's, like the
+    -- chat text itself. WoW Forever hides the neutral input art and seats the
+    -- box in its kit, but keeps Blizzard's focus regions. UpdateHeader colors
+    -- those regions for the active chat type (including numbered channels).
     if not ns.ChatStockArt() then
     for _, texName in ipairs({
         name .. "EditBoxLeft", name .. "EditBoxMid", name .. "EditBoxRight",
-        name .. "EditBoxFocusLeft", name .. "EditBoxFocusMid", name .. "EditBoxFocusRight",
     }) do
         local tex = _G[texName]
         if tex then tex:SetAlpha(0) end
     end
-    if eb.focusLeft then eb.focusLeft:SetAlpha(0) end
-    if eb.focusMid then eb.focusMid:SetAlpha(0) end
-    if eb.focusRight then eb.focusRight:SetAlpha(0) end
+    if eb.focusLeft then eb.focusLeft:SetAlpha(1) end
+    if eb.focusMid then eb.focusMid:SetAlpha(1) end
+    if eb.focusRight then eb.focusRight:SetAlpha(1) end
 
     -- Flush below the chat frame, for ALL frames including temp 11+.
     if ns.ChatForever() then
