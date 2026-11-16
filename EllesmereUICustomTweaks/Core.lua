@@ -18,6 +18,10 @@ local DEFAULTS = {
     tabSeconds = 45,
     hideCollapseButtons = true,
     channelInputBorder = true,
+    inputBorderColorMode = "channel",
+    inputBorderColor = { r = 1, g = 1, b = 1, a = 1 },
+    inputBorderStep = 1,
+    inputBorderSizePx = false,
 }
 ns.DEFAULTS = DEFAULTS
 
@@ -40,6 +44,7 @@ local driver
 local lineGeneration = 0
 local lineStates = setmetatable({}, { __mode = "k" })
 local floatGhosts = setmetatable({}, { __mode = "k" })
+local inputBorders = setmetatable({}, { __mode = "k" })
 local tabsLastInteraction = 0
 local tabsInteracting = false
 local tabsShown = true
@@ -229,8 +234,9 @@ local function RestoreTabs()
 end
 
 -------------------------------------------------------------------------------
--- Chat chrome: Blizzard already updates the input focus textures to the active
--- channel color. Ellesmere hides those textures; this companion reveals them.
+-- Chat chrome. Blizzard still updates its hidden focus textures to the active
+-- channel color, so channel mode reads that authoritative color and paints an
+-- addon-owned solid border whose physical-pixel size is user controlled.
 -------------------------------------------------------------------------------
 local function SetButtonMouse(button, enabled)
     if not button then return end
@@ -242,6 +248,87 @@ local function SetButtonMouse(button, enabled)
     else
         pcall(button.EnableMouse, button, enabled)
     end
+end
+
+local function CreateInputBorder(editBox)
+    if InCombatLockdown and InCombatLockdown() then return nil end
+    local border = CreateFrame("Frame", nil, editBox)
+    border:SetAllPoints(editBox)
+    border:SetFrameLevel(editBox:GetFrameLevel() + 5)
+    border:EnableMouse(false)
+    border.top = border:CreateTexture(nil, "OVERLAY")
+    border.bottom = border:CreateTexture(nil, "OVERLAY")
+    border.left = border:CreateTexture(nil, "OVERLAY")
+    border.right = border:CreateTexture(nil, "OVERLAY")
+    inputBorders[editBox] = border
+    return border
+end
+
+local function InputBorderPixels()
+    local step = ns.Get("inputBorderStep") or 1
+    local px = EUI.BorderPx and EUI.BorderPx(ns.Get("inputBorderSizePx"), step, "solid")
+    if not px and EUI.BorderLegacyPx then px = EUI.BorderLegacyPx(step, "solid") end
+    px = px or step
+    return px, px * ((EUI.PP and EUI.PP.mult) or 1)
+end
+
+local function InputBorderColor(editBox)
+    local mode = ns.Get("inputBorderColorMode") or "channel"
+    if mode == "accent" and EUI.GetAccentColor then
+        local r, g, b = EUI.GetAccentColor()
+        return r, g, b, 1
+    elseif mode == "custom" then
+        local c = ns.Get("inputBorderColor") or DEFAULTS.inputBorderColor
+        return c.r or 1, c.g or 1, c.b or 1, c.a == nil and 1 or c.a
+    end
+
+    local focus = editBox.focusLeft
+    if focus and focus.GetVertexColor then
+        local r, g, b, a = focus:GetVertexColor()
+        return r or 1, g or 1, b or 1, a or 1
+    end
+    local header = editBox.header
+    if header and header.GetTextColor then
+        local r, g, b, a = header:GetTextColor()
+        return r or 1, g or 1, b or 1, a or 1
+    end
+    return 1, 1, 1, 1
+end
+
+local function UpdateInputBorder(editBox, enabled)
+    local border = inputBorders[editBox]
+    if enabled and not border then border = CreateInputBorder(editBox) end
+    if not border then return end
+
+    local pixels, thickness = InputBorderPixels()
+    local active = enabled and pixels > 0 and editBox:IsShown()
+        and editBox.HasFocus and editBox:HasFocus()
+    border:SetShown(active and true or false)
+    if not active then return end
+
+    local top, bottom, left, right = border.top, border.bottom, border.left, border.right
+    top:ClearAllPoints()
+    top:SetPoint("TOPLEFT", border, "TOPLEFT", 0, 0)
+    top:SetPoint("TOPRIGHT", border, "TOPRIGHT", 0, 0)
+    top:SetHeight(thickness)
+    bottom:ClearAllPoints()
+    bottom:SetPoint("BOTTOMLEFT", border, "BOTTOMLEFT", 0, 0)
+    bottom:SetPoint("BOTTOMRIGHT", border, "BOTTOMRIGHT", 0, 0)
+    bottom:SetHeight(thickness)
+    left:ClearAllPoints()
+    left:SetPoint("TOPLEFT", border, "TOPLEFT", 0, -thickness)
+    left:SetPoint("BOTTOMLEFT", border, "BOTTOMLEFT", 0, thickness)
+    left:SetWidth(thickness)
+    right:ClearAllPoints()
+    right:SetPoint("TOPRIGHT", border, "TOPRIGHT", 0, -thickness)
+    right:SetPoint("BOTTOMRIGHT", border, "BOTTOMRIGHT", 0, thickness)
+    right:SetWidth(thickness)
+
+    local r, g, b, a = InputBorderColor(editBox)
+    top:SetColorTexture(r, g, b, a)
+    bottom:SetColorTexture(r, g, b, a)
+    left:SetColorTexture(r, g, b, a)
+    right:SetColorTexture(r, g, b, a)
 end
 
 local function ApplyChatChrome()
@@ -261,10 +348,12 @@ local function ApplyChatChrome()
 
         local editBox = _G[name .. "EditBox"]
         if editBox then
-            local alpha = channelBorder and 1 or 0
-            if editBox.focusLeft then editBox.focusLeft:SetAlpha(alpha) end
-            if editBox.focusMid then editBox.focusMid:SetAlpha(alpha) end
-            if editBox.focusRight then editBox.focusRight:SetAlpha(alpha) end
+            -- Keep Ellesmere's native focus art hidden; it remains our live
+            -- source for Channel Color while the custom border supplies size.
+            if editBox.focusLeft then editBox.focusLeft:SetAlpha(0) end
+            if editBox.focusMid then editBox.focusMid:SetAlpha(0) end
+            if editBox.focusRight then editBox.focusRight:SetAlpha(0) end
+            UpdateInputBorder(editBox, channelBorder)
         end
     end)
 end

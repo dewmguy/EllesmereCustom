@@ -8,8 +8,13 @@ if not EUI then return end
 local registered = false
 
 local function RegisterOptions()
-    if registered or not (EUI.RegisterModule and EUI.Widgets) then return end
-    registered = true
+    if registered then return true end
+    -- Register the page as soon as the companion addon loads.  Ellesmere's
+    -- widget factory belongs to the LoadOnDemand options addon, so waiting for
+    -- EUI.Widgets here can miss the registration window entirely.  The page
+    -- builder is not invoked until the options surface (and its widgets) is
+    -- ready.
+    if type(EUI.RegisterModule) ~= "function" then return false end
 
     local function Toggle(key, text, tooltip)
         return {
@@ -74,11 +79,77 @@ local function RegisterOptions()
         y = y - h
 
         _, h = W:SectionHeader(parent, "CHAT CONTROLS", y); y = y - h
+        local showBorder = Toggle("channelInputBorder", "Show Input Border",
+            "Shows a configurable border around the active chat input.")
+        showBorder.setValue = function(value)
+            ns.Set("channelInputBorder", value)
+            EUI:RefreshPage()
+        end
         _, h = W:DualRow(parent, y,
             Toggle("hideCollapseButtons", "Hide Collapse Buttons",
                 "Hides Blizzard's collapse and expand button attached to chat windows."),
-            Toggle("channelInputBorder", "Channel-Colored Input Border",
-                "Shows Blizzard's focus outline around the chat input, colored for the active channel."))
+            showBorder)
+        y = y - h
+
+        local borderDisabled = function() return not ns.Get("channelInputBorder") end
+        local borderRow
+        borderRow, h = W:DualRow(parent, y,
+            { type = "dropdown", text = "Input Border Color",
+              tooltip = "Custom Color uses the saved swatch, Accent Color follows EllesmereUI, and Channel Color follows Say, Party, Guild, Whisper, or the selected numbered channel.",
+              values = { custom = "Custom Color", accent = "Accent Color", channel = "Channel Color" },
+              order = { "custom", "accent", "channel" },
+              disabled = borderDisabled,
+              getValue = function() return ns.Get("inputBorderColorMode") or "channel" end,
+              setValue = function(value)
+                  ns.Set("inputBorderColorMode", value)
+                  EUI:RefreshPage()
+              end },
+            EUI.BorderPxSliderCfg{
+              text = "Input Border Size", max = 8,
+              disabled = borderDisabled,
+              getStep = function() return ns.Get("inputBorderStep") or 1 end,
+              setStep = function(value) ns.Set("inputBorderStep", value) end,
+              getTex = function() return "solid" end,
+              getPx = function() return ns.Get("inputBorderSizePx") end,
+              setPx = function(value) ns.Set("inputBorderSizePx", value) end,
+              apply = ns.ApplyAll })
+        if not EUI._prebuilding then
+            local region = borderRow._leftRegion
+            local control = region._control
+            local swatch, refreshSwatch = EUI.BuildColorSwatch(
+                region, borderRow:GetFrameLevel() + 3,
+                function()
+                    local c = ns.Get("inputBorderColor") or ns.DEFAULTS.inputBorderColor
+                    return c.r, c.g, c.b, c.a == nil and 1 or c.a
+                end,
+                function(r, g, b, a)
+                    ns.Set("inputBorderColor", { r = r, g = g, b = b, a = a })
+                    ns.Set("inputBorderColorMode", "custom")
+                end,
+                true, 20)
+            EUI.PanelPP.Point(swatch, "RIGHT", control, "LEFT", -8, 0)
+            local originalClick = swatch:GetScript("OnClick")
+            swatch:SetScript("OnClick", function(self, ...)
+                if borderDisabled() then return end
+                if ns.Get("inputBorderColorMode") ~= "custom" then
+                    ns.Set("inputBorderColorMode", "custom")
+                    EUI:RefreshPage()
+                    return
+                end
+                if originalClick then originalClick(self, ...) end
+            end)
+            swatch:SetScript("OnEnter", function()
+                EUI.ShowWidgetTooltip(swatch, "Custom Input Border Color")
+            end)
+            swatch:SetScript("OnLeave", EUI.HideWidgetTooltip)
+            local function RefreshSwatch()
+                refreshSwatch()
+                local active = not borderDisabled() and ns.Get("inputBorderColorMode") == "custom"
+                swatch:SetAlpha(active and 1 or 0.3)
+            end
+            EUI.RegisterWidgetRefresh(RefreshSwatch)
+            RefreshSwatch()
+        end
         y = y - h
 
         return math.abs(y)
@@ -95,16 +166,19 @@ local function RegisterOptions()
             if EUI.InvalidatePageCache then EUI:InvalidatePageCache() end
         end,
     })
+    registered = EUI._modules and EUI._modules[ADDON_NAME] ~= nil or false
+    return registered
 end
 
-local loader = CreateFrame("Frame")
-loader:RegisterEvent("ADDON_LOADED")
-loader:SetScript("OnEvent", function(_, _, addonName)
-    if addonName == "EllesmereUIOptions" then RegisterOptions() end
-end)
-
-if C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("EllesmereUIOptions") then
-    RegisterOptions()
-elseif IsAddOnLoaded and IsAddOnLoaded("EllesmereUIOptions") then
-    RegisterOptions()
+if not RegisterOptions() then
+    -- Defensive fallback for an unusual load order.  Dependencies normally
+    -- guarantee RegisterModule already exists before this file runs.
+    local loader = CreateFrame("Frame")
+    loader:RegisterEvent("ADDON_LOADED")
+    loader:SetScript("OnEvent", function(self, _, addonName)
+        if addonName == "EllesmereUI" and RegisterOptions() then
+            self:UnregisterAllEvents()
+        end
+    end)
+    if EUI.RegisterOnShow then EUI:RegisterOnShow(RegisterOptions) end
 end
