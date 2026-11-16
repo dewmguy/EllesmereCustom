@@ -160,23 +160,6 @@ ns._chatTabStrip = strip
 local ghosts = {}      -- pooled ghost frames, index = dock display order
 local floatGhosts = {} -- per-window-id ghosts for undocked windows
 
--- Floating ghosts do not inherit the docked strip's alpha.  Keep their local
--- alpha as the independent 45-second tab-visibility modifier; their parent
--- chat panel still supplies the module's normal whole-chat fade.
-function ECHAT.TabsSetAutoShown(shown)
-    local alpha = shown and 1 or 0
-    for _, g in pairs(floatGhosts) do
-        g:SetAlpha(alpha)
-    end
-end
-
-function ECHAT.TabsAnyFloatGhostMouseOver()
-    for _, g in pairs(floatGhosts) do
-        if g:IsShown() and g:IsMouseOver() then return true end
-    end
-    return false
-end
-
 -- LibChatAnims compat (DBM embeds it, among others): the lib REPLACES
 -- Blizzard's tab-flash machinery to sidestep the UIFrameFlash shared-registry
 -- taint, keeps alert state in its OWN table, and never writes tab.alerting --
@@ -576,7 +559,6 @@ local function RefreshFloatGhost(cf, height, fontPath, fontSize, padX, labelY, s
         g = BuildGhost()
         floatGhosts[id] = g
     end
-    g:SetAlpha(ns._chatTabsAutoShown == false and 0 or 1)
     if not g._mouseArmed then
         if InCombatLockdown() then
             ns.CombatQueue.Defer(ArmPendingGhosts, ArmPendingGhosts)

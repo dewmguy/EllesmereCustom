@@ -428,34 +428,19 @@ local function RequestPassthroughSweep()
     end)
 end
 
-local function ApplyTabAlpha(alpha)
-    local tabAlpha = ns._chatTabsAutoShown == false and 0 or alpha
-    -- Our tab strip (UIParent-parented) fades directly; its buttons inherit.
-    if ns._chatTabStrip then ns._chatTabStrip:SetAlpha(tabAlpha) end
-    -- Blizzard Style shows Blizzard's real docked tabs at dock level.
-    if ns.ChatBlizzTabs() then
-        local gdm = _G.GeneralDockManager
-        if gdm then gdm:SetAlpha(tabAlpha) end
-    end
-end
-
--- Independent tab auto-hide, composed with the existing whole-chat alpha.
--- This stays public because the message engine owns the geometric hover state.
-function ECHAT.SetChatTabsAutoShown(shown)
-    ns._chatTabsAutoShown = shown ~= false
-    ApplyTabAlpha(_chatAlphaCurrent)
-    -- Undocked-window ghosts are parented to their individual chat panels,
-    -- not the main strip, so they need the same visibility modifier directly.
-    if ECHAT.TabsSetAutoShown then
-        ECHAT.TabsSetAutoShown(ns._chatTabsAutoShown)
-    end
-end
-
 local function _ApplyAlpha(alpha)
     SetChatAlphaCurrent(alpha)
     SetChatMousePassthrough(alpha <= 0)
     if not _alphaFrames then _BuildAlphaCache() end
-    ApplyTabAlpha(alpha)
+    -- Our tab strip (UIParent-parented) fades directly; its buttons inherit.
+    if ns._chatTabStrip then ns._chatTabStrip:SetAlpha(alpha) end
+    -- Blizzard Style shows Blizzard's real docked tabs: they fade at DOCK
+    -- level, the same container-alpha write the tab sweep makes for the
+    -- EllesmereUI look (never the per-tab alphas or their globals).
+    if ns.ChatBlizzTabs() then
+        local gdm = _G.GeneralDockManager
+        if gdm then gdm:SetAlpha(alpha) end
+    end
     for i = 1, #_alphaFrames do
         local af = _alphaFrames[i]
         local cf = af.cf

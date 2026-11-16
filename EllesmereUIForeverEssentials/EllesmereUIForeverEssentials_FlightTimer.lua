@@ -280,7 +280,7 @@ local function LayoutRoute(b, fl)
 
     -- "You are here": a white post at the centre, where each stop is reached;
     -- a direct flight has no stops to reach, so none.
-    ShowMark(b.you, nil) -- Keep the route post, but omit the redundant "You" label.
+    ShowMark(b.you, MarkText(scroll, EllesmereUI.L("You"), names))
     local icon = b.you.icon
     local height = Get("separatorHeight")
     local tex, size = Get("borderTexture"), Get("borderSize")
