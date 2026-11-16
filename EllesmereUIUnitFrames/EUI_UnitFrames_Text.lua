@@ -1053,6 +1053,7 @@ do
     -- one-for-one so rendered text is byte-identical.
     local ZONE_STATIC = {
         name         = { "%s", "name" },
+        firstname    = { "%s", "namefirst" },
         levelname    = { "%s | %s", "level", "name" },
         namelevel    = { "%s | %s", "name", "level" },
         level        = { "%s", "level" },
@@ -1081,7 +1082,7 @@ do
     -- callbacks) -- Blizzard paints names on UNIT_NAME_UPDATE alone. Not
     -- listed: nametotarget (target names churn) and group (repainted by the
     -- roster pass at the end of this block).
-    local ZONE_IDENTITY = { name = true, levelname = true, namelevel = true, level = true }
+    local ZONE_IDENTITY = { name = true, firstname = true, levelname = true, namelevel = true, level = true }
     -- Value-class events and the value each one moves. A value event repaints
     -- only the zones that read that value (a static zone none of them); anything
     -- else (identity events, ForceUpdate, UnitChanged, Poll, PEW, nil) repaints

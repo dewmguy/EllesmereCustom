@@ -474,12 +474,15 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             if trim then return AbbreviateNumbers(trim.curve:Evaluate(p01), trim.cfg) end
             return string.format("%.1f", p01 * 100)
         end
-        local function _pvName()
+        local function _pvName(forcedMode)
             -- The player's name as the live frame shows it (Forever surname).
             local n = (unitKey == "player") and (EllesmereUI.WithSurname(UnitName("player")) or "Player")
                 or (_previewCreatureNames[unitKey] or unitKey)
-            -- The slot's Name Format.
-            if prefix and s then
+            -- A content preset's forced shape wins over the slot's optional
+            -- Name Format, matching the live namefirst piece.
+            if forcedMode then
+                n = EllesmereUI.ShortName(n, forcedMode)
+            elseif prefix and s then
                 n = EllesmereUI.ShortName(n, s[prefix .. "NameFormat"])
             end
             return n
@@ -519,6 +522,8 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         -- position code); the preview relies on its own FontString width.
         if content == "name" then
             return _pvName()
+        elseif content == "firstname" then
+            return _pvName("first")
         elseif content == "nametotarget" then
             return _pvName() .. _pvTargetSuffix()
         elseif content == "targetname" then
