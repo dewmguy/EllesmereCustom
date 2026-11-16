@@ -5,7 +5,8 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --  A stack of short-lived rows for what the player gains: looted items, money,
 --  reputation, currencies and skill ups. Each row fades out after a while; a
 --  repeat gain of the same thing adds to its row instead of opening another.
---  The Gold per Hour Tracker pins one row that adds up the session's loot.
+--  The Gold and XP per Hour Tracker pins one split row that adds up the
+--  session's loot and experience.
 --  Chat lines are matched against the client's own localized format strings,
 --  so this works in every client language.
 -------------------------------------------------------------------------------
@@ -786,12 +787,12 @@ local function ShortMoney(copper)
 end
 
 -------------------------------------------------------------------------------
---  Gold per Hour Tracker: looted coin plus the value of looted items, since
---  the first loot of the session (a reload starts a new one). One pinned row
---  shows the hourly rate, the total and the session's length; Ctrl + Click on
---  its Reset Session button clears it.
+--  Gold and XP per Hour Tracker: looted coin plus the value of looted items,
+--  and experience gained since the first gain of the session (a reload starts
+--  a new one). One pinned row is split into equal gold and XP columns; both
+--  use the same session clock.
 -------------------------------------------------------------------------------
-local session = { coin = 0, items = 0 } -- copper; start: GetTime() of the first loot
+local session = { coin = 0, items = 0, xp = 0 } -- start: GetTime() of the first gain
 local summary, clock
 
 -- 23m, 1h 5m: started minutes, so a session that has begun never reads 0m
@@ -801,20 +802,47 @@ local function Duration(seconds)
     return string.format(EllesmereUI.L("%dh %dm"), math.floor(minutes / 60), minutes % 60)
 end
 
--- The hourly rate leads; the session's total and length follow, dimmed.
--- elapsed: seconds since the first loot (0 before it).
-local function PaintSummary(r, total, elapsed)
+local function XP(amount)
+    return BreakUpLargeNumbers(math.floor(amount)) .. " XP"
+end
+
+-- Fill lays out an ordinary row. The tracker then takes the same row chrome
+-- and divides its text area into two columns around a quiet center rule.
+local function LayoutSummary(r)
+    local divider = r.summaryDivider
+    r.name:ClearAllPoints()
+    r.sub:ClearAllPoints()
+    r.value:ClearAllPoints()
+    r.xpSub:ClearAllPoints()
+    r.name:SetPoint("BOTTOMLEFT", r.icon, "RIGHT", 6, 1)
+    r.name:SetPoint("RIGHT", divider, "LEFT", -8, 0)
+    r.sub:SetPoint("TOPLEFT", r.icon, "RIGHT", 6, -1)
+    r.sub:SetPoint("RIGHT", divider, "LEFT", -8, 0)
+    r.value:SetPoint("BOTTOMLEFT", divider, "RIGHT", 8, 1)
+    r.value:SetPoint("RIGHT", r, "RIGHT", -6, 0)
+    r.xpSub:SetPoint("TOPLEFT", divider, "RIGHT", 8, -1)
+    r.xpSub:SetPoint("RIGHT", r, "RIGHT", -6, 0)
+end
+
+-- Each hourly rate leads; each session total and the shared length follow,
+-- dimmed. elapsed: seconds since the first gain (0 before it).
+local function PaintSummary(r, gold, xp, elapsed)
     local d = r.data
-    d.text = EllesmereUI.Lf("%s / hr", Money(math.floor(total / math.max(elapsed, RATE_FLOOR) * 3600)))
-    d.sub = EllesmereUI.Lf("%s in %s", Money(total), Duration(elapsed))
+    local divisor = math.max(elapsed, RATE_FLOOR)
+    d.text = EllesmereUI.Lf("%s / hr", Money(math.floor(gold / divisor * 3600)))
+    d.sub = EllesmereUI.Lf("%s in %s", Money(gold), Duration(elapsed))
+    d.value = EllesmereUI.Lf("%s / hr", XP(xp / divisor * 3600))
     Fill(r)
+    r.xpSub:SetText(EllesmereUI.Lf("%s in %s", XP(xp), Duration(elapsed)))
+    LayoutSummary(r)
 end
 
 local function FillSummary()
-    PaintSummary(summary, session.coin + session.items, session.start and GetTime() - session.start or 0)
+    PaintSummary(summary, session.coin + session.items, session.xp,
+        session.start and GetTime() - session.start or 0)
 end
 
--- The rate falls while nothing is looted, so the row is repainted once a
+-- The rates fall while nothing is gained, so the row is repainted once a
 -- minute while it is on screen with a running session.
 local function SyncClock()
     local run = session.start and summary and summary:IsVisible()
@@ -826,11 +854,47 @@ local function SyncClock()
     end
 end
 
-local function Earn(kind, copper)
+local function Earn(kind, amount)
     session.start = session.start or GetTime()
-    session[kind] = session[kind] + copper
+    session[kind] = session[kind] + amount
     if summary then FillSummary() end
     SyncClock()
+end
+
+-- Begin with the player's current values so enabling the tracker never counts
+-- XP that was earned while it was off.
+local function SetXPTracking(on)
+    if on then
+        if session.trackingXP then return end
+        session.trackingXP = true
+        session.lastXP = UnitXP("player")
+        session.lastMax = UnitXPMax("player")
+        session.lastLevel = UnitLevel("player")
+    else
+        session.trackingXP = nil
+        session.lastXP, session.lastMax, session.lastLevel = nil, nil, nil
+    end
+end
+
+-- PLAYER_XP_UPDATE settles after PLAYER_LEVEL_UP. A lower reading on the same
+-- level is the half-updated level transition and is left for the next event;
+-- once the level advances, the remainder of the old level plus the new
+-- level's current XP is one gain.
+local function TrackXP()
+    if not session.trackingXP then return end
+    local current, maximum, level = UnitXP("player"), UnitXPMax("player"), UnitLevel("player")
+    local last, lastMaximum, lastLevel = session.lastXP, session.lastMax, session.lastLevel
+    local gained = 0
+    if last and lastLevel then
+        if level == lastLevel then
+            if current <= last then return end
+            gained = current - last
+        elseif level > lastLevel then
+            gained = math.max(0, (lastMaximum or last) - last) + current
+        end
+    end
+    session.lastXP, session.lastMax, session.lastLevel = current, maximum, level
+    if gained > 0 then Earn("xp", gained) end
 end
 
 local AuctionPrice = module.AuctionPrice
@@ -844,82 +908,27 @@ local function ItemValue(link, sellPrice, bindType)
     return Get("auctionPrices") and AuctionPrice(link) or sellPrice or 0
 end
 
-local RESET_DIM = 0.7
-
-local function ResetEnter(b)
-    b.tip = true
-    EllesmereUI.ShowWidgetTooltip(b, EllesmereUI.L("Ctrl + Click to reset the session"), { anchor = "left" })
-end
-
-local function ResetLeave(b)
-    if not b.tip then return end
-    b.tip = nil
-    EllesmereUI.HideWidgetTooltip()
-end
-
--- The button takes the mouse only while Ctrl is held (and lights up), so the
--- row never blocks a click or a camera drag. Only a change of Ctrl (not Shift
--- or Alt) repaints it.
-local function ResetArm(b)
-    local on = IsControlKeyDown()
-    if on == b.armed then return end
-    b.armed = on
-    local c = on and 1 or RESET_DIM
-    b:EnableMouse(on)
-    b.text:SetTextColor(c, c, c)
-    if not on then ResetLeave(b) end
-end
-
--- The button shows and hides with the row: Ctrl is watched, and the minute
--- clock runs, only while the row is on screen.
-local function ResetShow(b)
-    b:RegisterEvent("MODIFIER_STATE_CHANGED")
-    ResetArm(b)
-    if summary and session.start then FillSummary() end
-    SyncClock()
-end
-
-local function ResetHide(b)
-    b:UnregisterEvent("MODIFIER_STATE_CHANGED")
-    ResetLeave(b)
-    SyncClock()
-end
-
-local function ResetClick()
-    if not IsControlKeyDown() then return end
-    session.coin, session.items, session.start = 0, 0, nil
-    FillSummary()
-    SyncClock()
-end
-
--- The Reset Session button ends the second line. The row takes no mouse. With
--- a parent it is the options preview's sample, whose button never does either.
+-- The tracker is display-only. With a parent it is the options preview sample.
 local function NewSummary(parent)
     local r = NewRow(parent)
     r.pinned = true
     r.data = { icon = MONEY_ICON }
-    local reset = CreateFrame("Button", nil, r)
-    reset:SetPoint("TOPRIGHT", r, "RIGHT", -6, -1)
-    reset.text = Text(reset)
-    reset.text:SetPoint("RIGHT")
-    reset.text:SetTextColor(RESET_DIM, RESET_DIM, RESET_DIM)
+    r.xpSub = Text(r)
+    r.summaryDivider = r:CreateTexture(nil, "OVERLAY")
+    r.summaryDivider:SetColorTexture(1, 1, 1, 0.18)
+    r.summaryDivider:SetWidth(1)
+    r.summaryDivider:SetPoint("TOP", r, "TOP", 0, -5)
+    r.summaryDivider:SetPoint("BOTTOM", r, "BOTTOM", 0, 5)
     r:SetScript("OnEnter", nil)
     r:SetScript("OnLeave", nil)
     r:EnableMouse(false)
-    reset:EnableMouse(false)
     if not parent then
-        reset:SetScript("OnEnter", ResetEnter)
-        reset:SetScript("OnLeave", ResetLeave)
-        reset:SetScript("OnClick", ResetClick)
-        reset:SetScript("OnEvent", ResetArm)
-        reset:SetScript("OnShow", ResetShow)
-        reset:SetScript("OnHide", ResetHide)
-        ResetShow(reset)
+        r:SetScript("OnShow", function()
+            if summary and session.start then FillSummary() end
+            SyncClock()
+        end)
+        r:SetScript("OnHide", SyncClock)
     end
-    r.reset = reset
-    r.sub:ClearAllPoints()
-    r.sub:SetPoint("TOPLEFT", r.icon, "RIGHT", 6, -1)
-    r.sub:SetPoint("RIGHT", reset, "LEFT", -8, 0)
     return r
 end
 
@@ -927,12 +936,17 @@ end
 local function PlaceSummary(r)
     StyleRow(r)
     -- One text size: the second line is set apart by its tone alone.
-    local reset, size = r.reset, Get("textSize")
+    local size = Get("textSize")
+    StyleFont(r.name, size)
     StyleFont(r.sub, size)
-    r.sub:SetTextColor(RESET_DIM, RESET_DIM, RESET_DIM)
-    StyleFont(reset.text, size)
-    reset.text:SetText(EllesmereUI.L("Reset Session"))
-    reset:SetSize(reset.text:GetStringWidth(), reset.text:GetStringHeight())
+    StyleFont(r.value, size)
+    StyleFont(r.xpSub, size)
+    r.value:SetJustifyH("LEFT")
+    r.xpSub:SetJustifyH("LEFT")
+    r.sub:SetTextColor(0.7, 0.7, 0.7)
+    r.xpSub:SetTextColor(0.7, 0.7, 0.7)
+    r.xpSub:Show()
+    LayoutSummary(r)
     r:ClearAllPoints()
     r:SetPoint(Get("grow") == "UP" and "BOTTOMLEFT" or "TOPLEFT")
     r:Show()
@@ -1228,6 +1242,9 @@ local function OnEvent(_, event, ...)
         local shift = IsShiftKeyDown()
         CatchWheel(shift)
         if not shift then LeaveHistory() end
+    elseif event == "PLAYER_XP_UPDATE" then
+        local unit = ...
+        if not unit or unit == "player" then TrackXP() end
     end
 end
 
@@ -1269,6 +1286,7 @@ local function Apply()
     LeaveHistory()
     CatchWheel(false)
     if not Enabled() then
+        SetXPTracking(false)
         ClearRows()
         if summary then summary:Hide() end
         SyncClock()
@@ -1282,6 +1300,8 @@ local function Apply()
     for event, chat in pairs(CHAT_EVENTS) do
         if Get(chat.setting) or (chat.tracked and Get("tracker")) then events:RegisterEvent(event) end
     end
+    SetXPTracking(Get("tracker"))
+    if Get("tracker") then events:RegisterEvent("PLAYER_XP_UPDATE") end
     if Get("currency") then events:RegisterEvent("CURRENCY_DISPLAY_UPDATE") end
     if Get("rolls") and C_LootHistory then events:RegisterEvent("LOOT_HISTORY_UPDATE_DROP") end
     if Get("history") then
@@ -1325,7 +1345,7 @@ end
 -------------------------------------------------------------------------------
 local preview -- row set plus its view and every row frame made so far
 
-local SAMPLE_TOTAL, SAMPLE_TIME = 61400, 1200 -- the sample tracker row: copper, seconds
+local SAMPLE_TOTAL, SAMPLE_XP, SAMPLE_TIME = 61400, 18750, 1200 -- copper, XP, seconds
 
 local requested = {} -- preview items asked of the client, once each
 
@@ -1390,7 +1410,7 @@ RefreshPreview = function(force)
     if Get("tracker") then
         v.summary = v.summary or NewSummary(v.frame)
         PlaceSummary(v.summary)
-        PaintSummary(v.summary, SAMPLE_TOTAL, SAMPLE_TIME)
+        PaintSummary(v.summary, SAMPLE_TOTAL, SAMPLE_XP, SAMPLE_TIME)
     elseif v.summary then
         v.summary:Hide()
     end
