@@ -746,17 +746,30 @@ local function SkinChatFrame(cf)
     -- (temp-window open) both read it. On an undocked window FCF_FadeIn/OutChatFrame
     -- animate this frame's alpha every frame (to 1 on hover, 0.2 after), which no
     -- alpha assert outpaces, and a SetAlpha hook would run inside those fades and
-    -- the dock pass. Blizzard never re-textures the frame or its minimize button, so
-    -- their art is emptied once instead: the fades then have nothing to draw.
+    -- the dock pass. Blizzard never re-textures the frame or writes the minimize
+    -- button's own alpha/mouse state, so both can be suppressed once here.
     local btnFrame = _G[name .. "ButtonFrame"]
     if btnFrame then
         btnFrame:SetAlpha(0)
         btnFrame:EnableMouse(false)
         -- Empty the border/background textures so btnFrame's own hover/undock
         -- alpha fades (0.2-1, never fully off) have nothing left to draw. The
-        -- minimize button is left alone: a separate child object, Blizzard
-        -- fades it in with btnFrame's alpha on hover the same as any other
-        -- chat window, and its own alpha/mouse state were never touched here.
+        -- side-mounted minimize button is a separate child.  Suppress its
+        -- own render and both mouse channels so Blizzard may continue fading
+        -- and positioning the protected parent without exposing the control.
+        local minimize = btnFrame.minimizeButton
+            or _G[name .. "ButtonFrameMinimizeButton"]
+        if minimize then
+            minimize:SetAlpha(0)
+            if minimize.SetMouseClickEnabled then
+                minimize:SetMouseClickEnabled(false)
+                if minimize.SetMouseMotionEnabled then
+                    minimize:SetMouseMotionEnabled(false)
+                end
+            else
+                minimize:EnableMouse(false)
+            end
+        end
         local regions = { btnFrame:GetRegions() }
         for i = 1, #regions do
             local region = regions[i]

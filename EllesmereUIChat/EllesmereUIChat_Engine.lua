@@ -70,6 +70,107 @@ void:Hide()
 local WINS = {}
 ns._chatWins = WINS
 
+-- Native per-line fading, matching the traditional Blizzard/ElvUI chat
+-- behaviour.  New lines age independently; interacting with a window reveals
+-- its history, and leaving it gives every visible line a fresh 45 seconds.
+local LINE_FADE_TIME = 45
+local LINE_FADE_DURATION = 3
+
+local function SetLineInteraction(win, interacting)
+    if not win or win.lineInteracting == interacting then return end
+    win.lineInteracting = interacting
+
+    if win.lineFadeTimer then
+        win.lineFadeTimer:Cancel()
+        win.lineFadeTimer = nil
+    end
+
+    local smf = win.smf
+    if interacting then
+        -- Restore lines the intrinsic has already faded, then hold them while
+        -- the user remains over or focused in this window.
+        if smf.ResetAllFadeTimes then smf:ResetAllFadeTimes() end
+        smf:SetFading(false)
+    elseif smf.ResetAllFadeTimes then
+        -- Start a new full visibility period after the interaction ends.
+        smf:ResetAllFadeTimes()
+        smf:SetFading(true)
+    else
+        -- Older clients without ResetAllFadeTimes still honour the requested
+        -- hold: keep the history visible, then resume native per-line fading.
+        smf:SetFading(false)
+        win.lineFadeTimer = C_Timer.NewTimer(LINE_FADE_TIME, function()
+            win.lineFadeTimer = nil
+            if not win.lineInteracting then smf:SetFading(true) end
+        end)
+    end
+end
+
+local function FrameIsMouseOver(frame)
+    return frame and frame:IsShown() and frame:IsMouseOver()
+end
+
+local tabsInteracting
+local tabsFadeTimer
+local function SetTabsInteraction(interacting)
+    if tabsInteracting == interacting then return end
+    tabsInteracting = interacting
+    if tabsFadeTimer then
+        tabsFadeTimer:Cancel()
+        tabsFadeTimer = nil
+    end
+    if interacting then
+        if ECHAT.SetChatTabsAutoShown then ECHAT.SetChatTabsAutoShown(true) end
+    else
+        tabsFadeTimer = C_Timer.NewTimer(LINE_FADE_TIME, function()
+            tabsFadeTimer = nil
+            if not tabsInteracting and ECHAT.SetChatTabsAutoShown then
+                ECHAT.SetChatTabsAutoShown(false)
+            end
+        end)
+    end
+end
+
+-- The first inactivity period begins as soon as the chat engine loads.
+SetTabsInteraction(false)
+
+-- The visible SMF is intentionally mouse-transparent so Blizzard's secure
+-- hyperlink zones underneath remain authoritative.  A small geometric poll
+-- observes hover without installing scripts on protected chat frames or
+-- intercepting clicks/camera movement.  Usually only one shown window is read.
+local lineFadeHover = CreateFrame("Frame")
+local lineFadeHoverElapsed = 0
+lineFadeHover:SetScript("OnUpdate", function(_, elapsed)
+    lineFadeHoverElapsed = lineFadeHoverElapsed + elapsed
+    if lineFadeHoverElapsed < 0.10 then return end
+    lineFadeHoverElapsed = 0
+
+    local selected = GENERAL_CHAT_DOCK and FCFDock_GetSelectedWindow
+        and FCFDock_GetSelectedWindow(GENERAL_CHAT_DOCK) or _G.ChatFrame1
+    local sharedOver = FrameIsMouseOver(ns._chatTabStrip)
+    local main = _G.ChatFrame1
+    local sidebar = main and CFD(main).sidebar
+    if FrameIsMouseOver(sidebar) then sharedOver = true end
+    local floatingTabOver = ECHAT.TabsAnyFloatGhostMouseOver
+        and ECHAT.TabsAnyFloatGhostMouseOver() or false
+
+    local anyOver = sharedOver or floatingTabOver
+    for cf, win in pairs(WINS) do
+        local shown = cf:IsShown()
+        local over = shown and FrameIsMouseOver(CFD(cf).bg) or false
+        if shown and not over and win.editBox and win.editBox.HasFocus
+                and win.editBox:HasFocus() then
+            over = true
+        end
+        if shown and not over and cf == selected and sharedOver then
+            over = true
+        end
+        if over then anyOver = true end
+        SetLineInteraction(win, over)
+    end
+    SetTabsInteraction(anyOver)
+end)
+
 -------------------------------------------------------------------------------
 --  Render suppression, alpha-only:
 --    FontStringContainer:SetAlpha(0)  their text (SMF line fading writes
@@ -217,6 +318,7 @@ local function SyncBlizzardScroll(win)
 end
 
 local function ScrollFromCursor(win)
+    SetLineInteraction(win, true)
     local track, smf = win.track, win.smf
     local trackH = track:GetHeight()
     local thumbH = win.thumb:GetHeight() or 16
@@ -307,7 +409,9 @@ local function CreateWindowSMF(cf)
     if not d.bg then return nil end
     local smf = CreateFrame("ScrollingMessageFrame", nil, d.bg)
     smf:SetMaxLines(128)
-    smf:SetFading(false)
+    smf:SetTimeVisible(LINE_FADE_TIME)
+    smf:SetFadeDuration(LINE_FADE_DURATION)
+    smf:SetFading(true)
     smf:SetIndentedWordWrap(true)
     smf:SetJustifyH("LEFT")
     -- A bare intrinsic starts with scrolling disallowed; without this the
@@ -324,7 +428,13 @@ local function CreateWindowSMF(cf)
     smf:EnableMouse(false)
     smf:EnableMouseWheel(false)
 
-    local win = { cf = cf, smf = smf }
+    local name = cf:GetName()
+    local win = {
+        cf = cf,
+        smf = smf,
+        editBox = name and _G[name .. "EditBox"] or nil,
+        lineInteracting = false,
+    }
 
     -- +4: renders above every Blizzard frame in the panel stack (cf at
     -- bg+1, its FontStringContainer at bg+2). Mouse-transparent, so the
@@ -927,6 +1037,8 @@ end
 -- elevated scroll methods -- which the MirrorScroll hooks above carry into
 -- our view. Semantics: plain = 3 lines, Shift = top/bottom, Ctrl = page.
 local function ChatFrameWheel(cf, delta)
+    local win = WINS[cf]
+    if win then SetLineInteraction(win, true) end
     local up = delta > 0
     -- Blizzard's scroll methods are the single wheel authority: lockstep
     -- with its view IS the zone alignment. Replayed session-history rows sit
@@ -1229,6 +1341,7 @@ function ECHAT.EngineScrollToBottom(cf)
     cf = cf or _G.ChatFrame1
     local win = WINS[cf]
     if not win then return end
+    SetLineInteraction(win, true)
     -- Through Blizzard's method so the mirror brings our view along --
     -- single scroll authority, both views land at the bottom together.
     if cf.ScrollToBottom then
