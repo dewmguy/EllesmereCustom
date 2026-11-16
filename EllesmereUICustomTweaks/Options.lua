@@ -99,14 +99,7 @@ local function RegisterOptions()
             EUI:RefreshPage()
         end
         local function ChannelColor()
-            local editBox = _G.ChatFrame1EditBox
-            local focus = editBox and editBox.focusLeft
-            if focus and focus.GetVertexColor then
-                local r, g, b = focus:GetVertexColor()
-                return r or 1, g or 1, b or 1, 1
-            end
-            local color = _G.ChatTypeInfo and _G.ChatTypeInfo.SAY
-            return color and color.r or 1, color and color.g or 1, color and color.b or 1, 1
+            return ns.GetInputChannelColor(_G.ChatFrame1EditBox)
         end
         _, h = W:DualRow(parent, y,
             { type = "multiSwatch", text = "Input Border Color",

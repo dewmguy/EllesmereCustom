@@ -272,6 +272,47 @@ local function InputBorderPixels()
     return px, px * ((EUI.PP and EUI.PP.mult) or 1)
 end
 
+local function IsSecret(value)
+    return _G.issecretvalue and _G.issecretvalue(value)
+end
+
+function ns.GetInputChannelColor(editBox)
+    -- Blizzard's hidden focus textures stay white on this client.  The header
+    -- is the live, already-resolved color for Say, Party, Guild, Whisper, and
+    -- numbered channels, so prefer it before consulting the chat attributes.
+    local header = editBox and editBox.header
+    if header and header.GetTextColor then
+        local r, g, b, a = header:GetTextColor()
+        if r ~= nil then return r, g, b, a or 1 end
+    end
+
+    -- Attribute fallback for edit boxes whose header has not painted yet.
+    -- This is read from our polling path, never from a Blizzard edit-box hook,
+    -- so it does not taint the secure chat-type update chain.
+    local chatType = editBox and editBox.GetAttribute
+        and editBox:GetAttribute("chatType")
+    if type(chatType) == "string" and not IsSecret(chatType) then
+        local info
+        if chatType == "CHANNEL" then
+            local target = editBox:GetAttribute("channelTarget")
+            if (type(target) == "number" or type(target) == "string")
+                and not IsSecret(target) then
+                info = _G.ChatTypeInfo and _G.ChatTypeInfo["CHANNEL" .. target]
+            end
+        end
+        info = info or (_G.ChatTypeInfo and _G.ChatTypeInfo[chatType])
+        if info then return info.r or 1, info.g or 1, info.b or 1, 1 end
+    end
+
+    local focus = editBox and editBox.focusLeft
+    if focus and focus.GetVertexColor then
+        local r, g, b, a = focus:GetVertexColor()
+        return r or 1, g or 1, b or 1, a or 1
+    end
+    local say = _G.ChatTypeInfo and _G.ChatTypeInfo.SAY
+    return say and say.r or 1, say and say.g or 1, say and say.b or 1, 1
+end
+
 local function InputBorderColor(editBox)
     local mode = ns.Get("inputBorderColorMode") or "channel"
     if mode == "accent" and EUI.GetAccentColor then
@@ -282,17 +323,7 @@ local function InputBorderColor(editBox)
         return c.r or 1, c.g or 1, c.b or 1, c.a == nil and 1 or c.a
     end
 
-    local focus = editBox.focusLeft
-    if focus and focus.GetVertexColor then
-        local r, g, b, a = focus:GetVertexColor()
-        return r or 1, g or 1, b or 1, a or 1
-    end
-    local header = editBox.header
-    if header and header.GetTextColor then
-        local r, g, b, a = header:GetTextColor()
-        return r or 1, g or 1, b or 1, a or 1
-    end
-    return 1, 1, 1, 1
+    return ns.GetInputChannelColor(editBox)
 end
 
 local function UpdateInputBorder(editBox, enabled)
@@ -348,8 +379,8 @@ local function ApplyChatChrome()
 
         local editBox = _G[name .. "EditBox"]
         if editBox then
-            -- Keep Ellesmere's native focus art hidden; it remains our live
-            -- source for Channel Color while the custom border supplies size.
+            -- Keep Ellesmere's native focus art hidden; the resolved header
+            -- color supplies Channel Color while our border supplies size.
             if editBox.focusLeft then editBox.focusLeft:SetAlpha(0) end
             if editBox.focusMid then editBox.focusMid:SetAlpha(0) end
             if editBox.focusRight then editBox.focusRight:SetAlpha(0) end
