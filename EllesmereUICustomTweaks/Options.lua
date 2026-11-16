@@ -54,6 +54,20 @@ local function RegisterOptions()
             nil)
         y = y - h
 
+        _, h = W:SectionHeader(parent, "PLAYER UNIT FRAME", y); y = y - h
+        _, h = W:DualRow(parent, y,
+            Toggle("showPlayerOnMissingHealth", "Show When Health Is Missing",
+                "Reveals the Ellesmere player frame whenever your health is below maximum."),
+            Toggle("showPlayerOnMissingMana", "Show When Mana Is Missing",
+                "Reveals the Ellesmere player frame whenever your mana is below maximum."))
+        y = y - h
+        _, h = W:DualRow(parent, y,
+            Toggle("showPlayerWhileEating", "Show While Eating or Drinking",
+                "Reveals the Ellesmere player frame while a food or drink regeneration aura is active."),
+            Toggle("showPlayerWhileChanneling", "Show While Channeling",
+                "Reveals the Ellesmere player frame only while you are channeling a spell."))
+        y = y - h
+
         _, h = W:SectionHeader(parent, "CHAT HISTORY", y); y = y - h
         _, h = W:DualRow(parent, y,
             Toggle("fadeChatLines", "Fade Old Chat Lines",
@@ -159,10 +173,10 @@ local function RegisterOptions()
 
     EUI:RegisterModule(ADDON_NAME, {
         title = "Custom Tweaks",
-        description = "Personal flight timer and chat refinements for EllesmereUI.",
+        description = "Personal unit-frame, flight timer, and chat refinements for EllesmereUI.",
         pages = { "Tweaks" },
         buildPage = BuildPage,
-        searchTerms = "custom tweaks flight timer you chat fade history tabs collapse input border channel",
+        searchTerms = "custom tweaks player unit frame health mana eating drinking channeling flight timer you chat fade history tabs collapse input border channel",
         onReset = function()
             ns.Reset()
             if EUI.InvalidatePageCache then EUI:InvalidatePageCache() end

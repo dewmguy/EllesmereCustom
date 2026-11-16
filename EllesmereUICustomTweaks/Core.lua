@@ -22,6 +22,10 @@ local DEFAULTS = {
     inputBorderColor = { r = 1, g = 1, b = 1, a = 1 },
     inputBorderStep = 1,
     inputBorderSizePx = false,
+    showPlayerOnMissingHealth = true,
+    showPlayerOnMissingMana = true,
+    showPlayerWhileEating = true,
+    showPlayerWhileChanneling = true,
 }
 ns.DEFAULTS = DEFAULTS
 
@@ -40,6 +44,10 @@ function ns.Get(key)
     return value
 end
 
+local function IsSecret(value)
+    return _G.issecretvalue and _G.issecretvalue(value)
+end
+
 local driver
 local lineGeneration = 0
 local lineStates = setmetatable({}, { __mode = "k" })
@@ -49,6 +57,167 @@ local tabsLastInteraction = 0
 local tabsInteracting = false
 local tabsShown = true
 local chromeElapsed = 0
+
+-------------------------------------------------------------------------------
+-- Player unit-frame conditional reveals. Ellesmere keeps visibility on a
+-- non-secure alpha wrapper, but group/driver modes may still secure-hide the
+-- underlying frame. Extending HealthVisibilityEnabled keeps the player frame
+-- available at secure level whenever any reveal rule is configured; the
+-- ResolveVisResting wrapper then supplies full alpha only while a rule matches.
+-------------------------------------------------------------------------------
+local playerRevealHooked = false
+local playerRevealPending = false
+local playerRevealEvents
+
+local PLAYER_REGEN_AURAS = {}
+for _, spellID in ipairs({
+    430, 431, 432, 433, 434, 435, 1127, 1129, 1131, 1133, 1135, 1137,
+    2639, 5004, 5006, 5007, 6410, 7737, 10256, 22734, 24005, 24355,
+    24707, 24869, 25660, 29007, 29008, 29073, 468767, 470362, 470369,
+    1225769, 1225771, 1225772,
+}) do
+    PLAYER_REGEN_AURAS[spellID] = true
+end
+
+local function UnitFramesNS()
+    return EUI._ModuleNS and EUI._ModuleNS["EllesmereUIUnitFrames"]
+end
+
+local function AnyPlayerRevealEnabled()
+    return ns.Get("showPlayerOnMissingHealth")
+        or ns.Get("showPlayerOnMissingMana")
+        or ns.Get("showPlayerWhileEating")
+        or ns.Get("showPlayerWhileChanneling")
+end
+
+local function SafeLessThan(current, maximum)
+    if IsSecret(current) or IsSecret(maximum) then return false end
+    return type(current) == "number" and type(maximum) == "number"
+        and maximum > 0 and current < maximum
+end
+
+local function PlayerHasRegenAura()
+    if _G.C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
+        for index = 1, 40 do
+            local aura = C_UnitAuras.GetAuraDataByIndex("player", index, "HELPFUL")
+            if not aura then break end
+            if PLAYER_REGEN_AURAS[aura.spellId or aura.spellID] then return true end
+        end
+    elseif _G.UnitAura then
+        for index = 1, 40 do
+            local name, _, _, _, _, _, _, _, _, spellID = UnitAura("player", index, "HELPFUL")
+            if not name then break end
+            if PLAYER_REGEN_AURAS[spellID] then return true end
+        end
+    end
+    return false
+end
+
+function ns.PlayerRevealActive()
+    if ns.Get("showPlayerOnMissingHealth")
+        and SafeLessThan(UnitHealth("player"), UnitHealthMax("player")) then
+        return true
+    end
+
+    if ns.Get("showPlayerOnMissingMana") then
+        local mana = _G.Enum and Enum.PowerType and Enum.PowerType.Mana or 0
+        if SafeLessThan(UnitPower("player", mana), UnitPowerMax("player", mana)) then
+            return true
+        end
+    end
+
+    if ns.Get("showPlayerWhileEating") and PlayerHasRegenAura() then return true end
+    if ns.Get("showPlayerWhileChanneling") and UnitChannelInfo("player") then
+        return true
+    end
+    return false
+end
+
+local function IsCustomRevealFrame(settings, frame)
+    if not AnyPlayerRevealEnabled() or not settings or not frame then return false end
+    if frame._euiUnit ~= "player" and frame ~= _G.EllesmereUIUnitFrames_Player then
+        return false
+    end
+    local override = EUI.VisOverrideValue and EUI.VisOverrideValue(settings)
+    return (override or settings.barVisibility or "always") ~= "never"
+end
+
+local function InstallPlayerRevealHooks()
+    if playerRevealHooked then return true end
+    local unitFrames = UnitFramesNS()
+    if not (unitFrames and unitFrames.ResolveVisResting
+        and unitFrames.HealthVisibilityEnabled) then return false end
+
+    local baseResolve = unitFrames.ResolveVisResting
+    local baseHealthEnabled = unitFrames.HealthVisibilityEnabled
+    unitFrames.ResolveVisResting = function(settings, frame, extended, hiddenByOptions, inCombat)
+        local alpha, hoverGated = baseResolve(settings, frame, extended, hiddenByOptions, inCombat)
+        if not hiddenByOptions and IsCustomRevealFrame(settings, frame)
+            and ns.PlayerRevealActive() then
+            return 1, false
+        end
+        return alpha, hoverGated
+    end
+    unitFrames.HealthVisibilityEnabled = function(settings, frame)
+        if baseHealthEnabled(settings, frame) then return true end
+        return IsCustomRevealFrame(settings, frame)
+    end
+    playerRevealHooked = true
+    return true
+end
+
+local function RefreshPlayerReveal()
+    if not InstallPlayerRevealHooks() then return end
+    local unitFrames = UnitFramesNS()
+    if unitFrames and unitFrames.UpdateFrameVisibility then
+        unitFrames.UpdateFrameVisibility()
+    end
+end
+
+local function QueuePlayerRevealRefresh()
+    if playerRevealPending then return end
+    playerRevealPending = true
+    C_Timer.After(0, function()
+        playerRevealPending = false
+        RefreshPlayerReveal()
+    end)
+end
+
+local function SyncPlayerRevealEvents()
+    if not playerRevealEvents then
+        playerRevealEvents = CreateFrame("Frame")
+        playerRevealEvents:SetScript("OnEvent", function(_, _, unit)
+            if unit and unit ~= "player" then return end
+            QueuePlayerRevealRefresh()
+        end)
+    end
+
+    playerRevealEvents:UnregisterAllEvents()
+    if ns.Get("showPlayerOnMissingHealth") then
+        playerRevealEvents:RegisterUnitEvent("UNIT_HEALTH", "player")
+        playerRevealEvents:RegisterUnitEvent("UNIT_MAXHEALTH", "player")
+    end
+    if ns.Get("showPlayerOnMissingMana") then
+        -- UNIT_POWER_UPDATE is throttled; the frequent event is what makes an
+        -- instant mana-cost spell reveal the frame on the same power change.
+        playerRevealEvents:RegisterUnitEvent("UNIT_POWER_FREQUENT", "player")
+        playerRevealEvents:RegisterUnitEvent("UNIT_POWER_UPDATE", "player")
+        playerRevealEvents:RegisterUnitEvent("UNIT_MAXPOWER", "player")
+        playerRevealEvents:RegisterUnitEvent("UNIT_DISPLAYPOWER", "player")
+    end
+    if ns.Get("showPlayerWhileEating") then
+        playerRevealEvents:RegisterUnitEvent("UNIT_AURA", "player")
+    end
+    if ns.Get("showPlayerWhileChanneling") then
+        for _, event in ipairs({
+            "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_CHANNEL_STOP",
+            "UNIT_SPELLCAST_CHANNEL_UPDATE",
+        }) do
+            playerRevealEvents:RegisterUnitEvent(event, "player")
+        end
+    end
+    QueuePlayerRevealRefresh()
+end
 
 local function ChatNS()
     return EUI._ModuleNS and EUI._ModuleNS["EllesmereUIChat"]
@@ -272,10 +441,6 @@ local function InputBorderPixels()
     return px, px * ((EUI.PP and EUI.PP.mult) or 1)
 end
 
-local function IsSecret(value)
-    return _G.issecretvalue and _G.issecretvalue(value)
-end
-
 function ns.GetInputChannelColor(editBox)
     -- Blizzard's hidden focus textures stay white on this client.  The header
     -- is the live, already-resolved color for Say, Party, Guild, Whisper, and
@@ -457,6 +622,7 @@ function ns.ApplyAll()
     RestoreTabs()
     ApplyChatChrome()
     ApplyFlightSetting()
+    SyncPlayerRevealEvents()
 
     local wins = ChatWins()
     if wins then
