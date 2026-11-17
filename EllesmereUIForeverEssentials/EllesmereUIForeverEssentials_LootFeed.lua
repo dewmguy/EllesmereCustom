@@ -788,11 +788,13 @@ end
 
 -------------------------------------------------------------------------------
 --  Gold and XP per Hour Tracker: looted coin plus the value of looted items,
---  and experience gained since the first gain of the session (a reload starts
---  a new one). One pinned row is split into equal gold and XP columns; both
---  use the same session clock.
+--  and experience gained since the first gain or expense of the session (a
+--  reload starts a new one). The hourly gold rate remains gross earnings;
+--  the session total subtracts actual wallet losses such as flights, repairs,
+--  and vendor purchases, and may therefore be negative. One pinned row is
+--  split into equal gold and XP columns; both use the same session clock.
 -------------------------------------------------------------------------------
-local session = { coin = 0, items = 0, xp = 0 } -- start: GetTime() of the first gain
+local session = { coin = 0, items = 0, spent = 0, xp = 0 }
 local summary, clock
 
 -- 23m, 1h 5m: started minutes, so a session that has begun never reads 0m
@@ -804,6 +806,13 @@ end
 
 local function XP(amount)
     return BreakUpLargeNumbers(math.floor(amount)) .. " XP"
+end
+
+-- Blizzard's coin formatter is not consistent about negative inputs. Keep
+-- the minus sign outside it and tint a net loss red.
+local function SessionMoney(copper)
+    if copper < 0 then return "|cffff4040-" .. Money(-copper) .. "|r" end
+    return Money(copper)
 end
 
 -- Fill lays out an ordinary row. The tracker then takes the same row chrome
@@ -825,12 +834,13 @@ local function LayoutSummary(r)
 end
 
 -- Each hourly rate leads; each session total and the shared length follow,
--- dimmed. elapsed: seconds since the first gain (0 before it).
-local function PaintSummary(r, gold, xp, elapsed)
+-- dimmed. The rate deliberately ignores spending while the total is net.
+-- elapsed: seconds since the first gain or expense (0 before it).
+local function PaintSummary(r, grossGold, netGold, xp, elapsed)
     local d = r.data
     local divisor = math.max(elapsed, RATE_FLOOR)
-    d.text = EllesmereUI.Lf("%s / hr", Money(math.floor(gold / divisor * 3600)))
-    d.sub = EllesmereUI.Lf("%s in %s", Money(gold), Duration(elapsed))
+    d.text = EllesmereUI.Lf("%s / hr", Money(math.floor(grossGold / divisor * 3600)))
+    d.sub = EllesmereUI.Lf("%s in %s", SessionMoney(netGold), Duration(elapsed))
     d.value = EllesmereUI.Lf("%s / hr", XP(xp / divisor * 3600))
     Fill(r)
     r.xpSub:SetText(EllesmereUI.Lf("%s in %s", XP(xp), Duration(elapsed)))
@@ -838,7 +848,8 @@ local function PaintSummary(r, gold, xp, elapsed)
 end
 
 local function FillSummary()
-    PaintSummary(summary, session.coin + session.items, session.xp,
+    local grossGold = session.coin + session.items
+    PaintSummary(summary, grossGold, grossGold - session.spent, session.xp,
         session.start and GetTime() - session.start or 0)
 end
 
@@ -859,6 +870,36 @@ local function Earn(kind, amount)
     session[kind] = session[kind] + amount
     if summary then FillSummary() end
     SyncClock()
+end
+
+local function Spend(amount)
+    session.start = session.start or GetTime()
+    session.spent = session.spent + amount
+    if summary then FillSummary() end
+    SyncClock()
+end
+
+-- PLAYER_MONEY catches wallet losses that have no loot chat line. Gains are
+-- already represented by looted coin and item value, so counting positive
+-- wallet changes here would double-count loot when it is later vendored.
+local function SetMoneyTracking(on)
+    if on then
+        if session.trackingMoney then return end
+        session.trackingMoney = true
+        session.lastMoney = Plain(GetMoney(), "number")
+    else
+        session.trackingMoney = nil
+        session.lastMoney = nil
+    end
+end
+
+local function TrackMoney()
+    if not session.trackingMoney then return end
+    local current = Plain(GetMoney(), "number")
+    if not current then return end
+    local last = session.lastMoney
+    session.lastMoney = current
+    if last and current < last then Spend(last - current) end
 end
 
 -- Begin with the player's current values so enabling the tracker never counts
@@ -1245,6 +1286,8 @@ local function OnEvent(_, event, ...)
     elseif event == "PLAYER_XP_UPDATE" then
         local unit = ...
         if not unit or unit == "player" then TrackXP() end
+    elseif event == "PLAYER_MONEY" then
+        TrackMoney()
     end
 end
 
@@ -1286,6 +1329,7 @@ local function Apply()
     LeaveHistory()
     CatchWheel(false)
     if not Enabled() then
+        SetMoneyTracking(false)
         SetXPTracking(false)
         ClearRows()
         if summary then summary:Hide() end
@@ -1300,8 +1344,12 @@ local function Apply()
     for event, chat in pairs(CHAT_EVENTS) do
         if Get(chat.setting) or (chat.tracked and Get("tracker")) then events:RegisterEvent(event) end
     end
+    SetMoneyTracking(Get("tracker"))
     SetXPTracking(Get("tracker"))
-    if Get("tracker") then events:RegisterEvent("PLAYER_XP_UPDATE") end
+    if Get("tracker") then
+        events:RegisterEvent("PLAYER_MONEY")
+        events:RegisterEvent("PLAYER_XP_UPDATE")
+    end
     if Get("currency") then events:RegisterEvent("CURRENCY_DISPLAY_UPDATE") end
     if Get("rolls") and C_LootHistory then events:RegisterEvent("LOOT_HISTORY_UPDATE_DROP") end
     if Get("history") then
@@ -1410,7 +1458,7 @@ RefreshPreview = function(force)
     if Get("tracker") then
         v.summary = v.summary or NewSummary(v.frame)
         PlaceSummary(v.summary)
-        PaintSummary(v.summary, SAMPLE_TOTAL, SAMPLE_XP, SAMPLE_TIME)
+        PaintSummary(v.summary, SAMPLE_TOTAL, SAMPLE_TOTAL, SAMPLE_XP, SAMPLE_TIME)
     elseif v.summary then
         v.summary:Hide()
     end

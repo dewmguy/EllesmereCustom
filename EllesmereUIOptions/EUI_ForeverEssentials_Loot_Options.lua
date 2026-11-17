@@ -169,7 +169,7 @@ _G._EUI_BuildLootFeedPage = function(pageName, parent, yOffset)
     local trackerRow
     trackerRow, h = W:DualRow(parent, y,
         Toggle("tracker", "Gold & XP per Hour Tracker",
-            "Pins a split row with your gold and XP gained per hour and session.",
+            "Pins a split row with gross gold and XP gained per hour. The gold session total subtracts travel, repair, and vendor costs and can fall below zero.",
             function()
                 LF.Apply()
                 LF.ApplyStyle()
