@@ -66,7 +66,6 @@ local BAR_TEXTURES, BAR_TEXTURE_NAMES, BAR_TEXTURE_ORDER = EllesmereUI.BuildBarT
 
 local routes = EllesmereUI._FlightTimerRoutes
 local bar, events, ticker, hooked
-local classicTooltipHooked, flightMapTooltipHooked
 local pending   -- destination picked on the flight map, waiting for takeoff
 local flight    -- the flight in progress
 
@@ -149,39 +148,6 @@ local function RouteInfo(slot)
         points[#points + 1] = { name = TaxiNodeName(toSlot), yards = yards }
     end
     return yards and yards > 0 and yards or nil, points
-end
-
--- Add the same estimate used by the flight timer to Blizzard's taxi tooltip.
--- The slot is relative to the currently open flight master, so the result is
--- always a route from the player's present location (including every hop).
-local function AddEstimatedTimeToTooltip(slot)
-    if not Enabled() or type(slot) ~= "number" then return end
-    local yards = RouteInfo(slot)
-    if not yards then return end
-    local eta = yards / (Speed() * SpeedMultiplier())
-    GameTooltip:AddLine("Estimated flight time: " .. FormatTime(eta), 0.45, 0.8, 1)
-    GameTooltip:Show()
-end
-
--- Forever can expose either the original TaxiFrame buttons or the newer
--- FlightMap pins. Hook both; each Blizzard handler has already built its
--- tooltip when our hook runs, so this only appends one line to it.
-local function HookFlightTooltips()
-    if not classicTooltipHooked and type(TaxiNodeOnButtonEnter) == "function" then
-        hooksecurefunc("TaxiNodeOnButtonEnter", function(button)
-            if button then AddEstimatedTimeToTooltip(button:GetID()) end
-        end)
-        classicTooltipHooked = true
-    end
-
-    local mixin = FlightMap_FlightPointPinMixin
-    if not flightMapTooltipHooked and type(mixin) == "table" and type(mixin.OnMouseEnter) == "function" then
-        hooksecurefunc(mixin, "OnMouseEnter", function(pin)
-            local node = pin and pin.taxiNodeData
-            if node then AddEstimatedTimeToTooltip(node.slotIndex) end
-        end)
-        flightMapTooltipHooked = true
-    end
 end
 
 -- Text in Forever Essentials' font and outline (Fonts page, else the global font).
@@ -625,7 +591,7 @@ Land = function()
     EndFlight()
 end
 
-local function OnEvent(_, event, ...)
+local function OnEvent(_, event)
     if event == "PLAYER_CONTROL_LOST" then
         -- UnitOnTaxi is still false when this fires at takeoff, so a fresh
         -- flight-map click is the signal. A click the server refused leaves
@@ -638,10 +604,6 @@ local function OnEvent(_, event, ...)
         pending = nil
     elseif event == "PLAYER_CONTROL_GAINED" then
         if flight and not UnitOnTaxi("player") then Land() end
-    elseif event == "TAXIMAP_OPENED" then
-        HookFlightTooltips()
-    elseif event == "ADDON_LOADED" and ... == "Blizzard_FlightMap" then
-        HookFlightTooltips()
     end
 end
 
@@ -653,7 +615,6 @@ end
 
 local function Apply()
     if Enabled() then
-        HookFlightTooltips()
         if not hooked then
             hooksecurefunc("TakeTaxiNode", OnTakeTaxiNode)
             hooksecurefunc("TaxiRequestEarlyLanding", function()
@@ -670,8 +631,6 @@ local function Apply()
         end
         events:RegisterEvent("PLAYER_CONTROL_LOST")
         events:RegisterEvent("PLAYER_CONTROL_GAINED")
-        events:RegisterEvent("TAXIMAP_OPENED")
-        events:RegisterEvent("ADDON_LOADED")
     else
         if events then events:UnregisterAllEvents() end
         pending = nil

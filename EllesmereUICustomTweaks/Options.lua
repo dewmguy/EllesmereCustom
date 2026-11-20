@@ -60,6 +60,16 @@ local function RegisterOptions()
         _, h = W:DualRow(parent, y,
             Toggle("hideFlightYou", "Hide Center 'You' Label",
                 "Keeps the centre route marker but removes its redundant You label."),
+            Toggle("learnFlightTimes", "Learn Actual Route Times",
+                "Records clean completed flights by their complete route and uses the learned time for future timers and flight-point tooltips."))
+        y = y - h
+        _, h = W:DualRow(parent, y,
+            { type = "button", text = "Clear Learned Route Times",
+              tooltip = "Forgets recorded flight durations. New clean flights will begin learning them again.",
+              onClick = function()
+                  ns.ResetFlightTimes()
+                  EUI:RefreshPage()
+              end },
             nil)
         y = y - h
 
@@ -185,7 +195,7 @@ local function RegisterOptions()
         description = "Personal minimap, unit-frame, flight timer, and chat refinements for EllesmereUI.",
         pages = { "Tweaks" },
         buildPage = BuildPage,
-        searchTerms = "custom tweaks minimap profession gathering tracking herbs minerals player unit frame health mana eating drinking channeling flight timer you chat fade history tabs collapse input border channel",
+        searchTerms = "custom tweaks minimap profession gathering tracking herbs minerals player unit frame health mana eating drinking channeling flight timer you route learn actual time clear chat fade history tabs collapse input border channel",
         onReset = function()
             ns.Reset()
             if EUI.InvalidatePageCache then EUI:InvalidatePageCache() end

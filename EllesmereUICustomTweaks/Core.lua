@@ -11,6 +11,7 @@ EUI._ModuleNS[ADDON_NAME] = ns
 
 local DEFAULTS = {
     hideFlightYou = true,
+    learnFlightTimes = true,
     fadeChatLines = true,
     chatLineSeconds = 45,
     chatFadeDuration = 3,
@@ -385,33 +386,6 @@ local function ForEachChatFrame(callback)
 end
 
 -------------------------------------------------------------------------------
--- Flight timer: suppress only the centre label. The route post remains owned
--- and drawn by Forever Essentials.
--------------------------------------------------------------------------------
-local function FlightBar()
-    local entries = EUI._unlockRegisteredElements
-    local entry = entries and entries.EUI_FlightTimer
-    if not (entry and entry.getFrame) then return nil end
-    local ok, frame = pcall(entry.getFrame)
-    return ok and frame or nil
-end
-
-local function HideFlightLabel()
-    local bar = FlightBar()
-    local label = bar and bar.you and bar.you.label
-    if label then label:SetAlpha(0) end
-end
-
-local function ApplyFlightSetting()
-    if ns.Get("hideFlightYou") then
-        HideFlightLabel()
-    else
-        local timer = EUI._FlightTimer
-        if timer and timer.ApplyStyle then timer.ApplyStyle() end
-    end
-end
-
--------------------------------------------------------------------------------
 -- Native ScrollingMessageFrame line fading.
 -------------------------------------------------------------------------------
 local function CancelLineTimer(state)
@@ -748,7 +722,7 @@ function ns.ApplyAll()
     tabsInteracting = false
     RestoreTabs()
     ApplyChatChrome()
-    ApplyFlightSetting()
+    if ns.ApplyFlightTweaks then ns.ApplyFlightTweaks() end
     SyncPlayerRevealEvents()
     SyncGatheringTrackingEvents()
 
@@ -786,8 +760,6 @@ driver:SetScript("OnUpdate", function(_, delta)
     if elapsed < 0.10 then return end
     elapsed = 0
     PollChat()
-    if ns.Get("hideFlightYou") then HideFlightLabel() end
-
     chromeElapsed = chromeElapsed + 0.10
     if chromeElapsed >= 0.50 then
         chromeElapsed = 0
