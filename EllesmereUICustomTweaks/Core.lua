@@ -355,19 +355,14 @@ local function IsCustomRevealFrame(settings, frame)
 end
 
 local function CustomRevealVetoed(settings, hiddenByOptions, inCombat)
-    -- Ellesmere defines every checked Hide lane as an unconditional veto.
-    -- Custom reveal rules may supplement Show lanes, but must never outvote a
-    -- currently firing Hide lane. A temporary Visibility override replaces the
-    -- underlying configuration and therefore bypasses its stored vetoes.
+    -- The custom conditions deliberately override ordinary visibility options
+    -- such as Hide Without Target / Hide Without Enemy: "show while injured"
+    -- must remain literal even when those normal-context filters are active.
+    -- Visibility-mode Hide lanes are different user-authored hard stops (for
+    -- example Hide Out of Combat), and remain terminal. A temporary Visibility
+    -- override replaces the underlying configuration and its stored vetoes.
     local override = EUI.VisOverrideValue and EUI.VisOverrideValue(settings)
     if override then return false end
-    if EUI.VisOptionHideVeto then
-        if EUI.VisOptionHideVeto(settings) then return true end
-    elseif hiddenByOptions then
-        -- Compatibility with an older Ellesmere visibility engine that does
-        -- not expose separate Show-lane and Hide-lane evaluation.
-        return true
-    end
 
     local selection = EUI.GetActiveVisibilityModes
         and EUI.GetActiveVisibilityModes(settings, "barVisibility")
