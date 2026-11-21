@@ -105,20 +105,101 @@ local function RegisterOptions()
                 "Maximum number of selected buffs shown at once.", auraOff))
         y = y - h
 
-        local spellRow
-        spellRow, h = W:DualRow(parent, y,
-            { type = "dropdown", text = "Tracked Buffs",
+        local assignedRow
+        assignedRow, h = W:DualRow(parent, y,
+            { type = "dropdown", text = "Filters",
               values = { __placeholder = "..." }, order = { "__placeholder" },
               getValue = function() return "__placeholder" end, setValue = function() end },
-            { type = "dropdown", text = "Bar Texture",
-              values = auraTextureValues, order = auraTextureOrder,
-              disabled = auraOff,
-              getValue = function() return ns.Get("auraDurationBarTexture") end,
-              setValue = function(value) ns.Set("auraDurationBarTexture", value) end })
+            { type = "dropdown", text = "Extra Spells",
+              values = { __placeholder = "..." }, order = { "__placeholder" },
+              getValue = function() return "__placeholder" end, setValue = function() end })
         y = y - h
 
+        local function PlayerAuraBarsNS()
+            return EUI._ModuleNS and EUI._ModuleNS["EllesmereUIUnitFrames"]
+        end
+        local function CurrentFilters()
+            local source = ns.Get("auraDurationFilters")
+            local copy = {}
+            if type(source) == "table" then
+                for id, enabled in pairs(source) do
+                    if enabled then copy[id] = true end
+                end
+            end
+            return copy
+        end
+        local function HasFilter(id)
+            local filters = ns.Get("auraDurationFilters")
+            return type(filters) == "table" and filters[id] == true
+        end
+        local function NativeFilters()
+            local pab = PlayerAuraBarsNS()
+            local list = pab and pab.PAB_Filters and pab.PAB_Filters() or {}
+            local result, seenNames = {}, {}
+            for i = 1, #list do
+                local filter = list[i]
+                local name = filter.name or ("Filter " .. tostring(filter.id))
+                if not seenNames[name] then
+                    seenNames[name] = true
+                    result[#result + 1] = filter
+                end
+            end
+            return result
+        end
+
+        -- Native Player Aura Bars filter assignments.  The selection is saved
+        -- by Custom Tweaks, while filter definitions and editing remain owned
+        -- by EllesmereUI's shared registry.
         do
-            local region = spellRow._leftRegion
+            local region = assignedRow._leftRegion
+            if region and region._control then region._control:Hide() end
+
+            local function Items()
+                local pab = PlayerAuraBarsNS()
+                local items = {}
+                if pab and pab.PABMP_ShowFilterEditor then
+                    items[#items + 1] = {
+                        isTopAction = true,
+                        label = "Edit Filters",
+                        onClick = function() pab.PABMP_ShowFilterEditor() end,
+                    }
+                end
+                local filters = NativeFilters()
+                if #filters > 0 then
+                    items[#items + 1] = { isHeader = true, label = "Assigned Filters" }
+                    for i = 1, #filters do
+                        items[#items + 1] = {
+                            key = filters[i].id,
+                            label = filters[i].name or ("Filter " .. tostring(filters[i].id)),
+                        }
+                    end
+                else
+                    items[#items + 1] = { isHeader = true, label = "No filters available" }
+                end
+                return items
+            end
+
+            local dropdown, refresh = EUI.BuildVisOptsCBDropdown(
+                region, 190, region:GetFrameLevel() + 2,
+                Items, HasFilter,
+                function(id, enabled)
+                    local filters = CurrentFilters()
+                    filters[id] = enabled and true or nil
+                    ns.Set("auraDurationFilters", filters)
+                    EUI:RefreshPage()
+                end,
+                nil, 12, true)
+            EUI.PanelPP.Point(dropdown, "RIGHT", region, "RIGHT", -20, 0)
+            region._control = dropdown
+            region._lastInline = nil
+            EUI.RegisterWidgetRefresh(refresh)
+        end
+
+        -- Native Extra Spells behaviour: selected custom IDs first, followed
+        -- by the searchable curated preset universe, with spells supplied by
+        -- an assigned filter omitted as redundant choices.
+        do
+            local region = assignedRow._rightRegion
             if region and region._control then region._control:Hide() end
 
             local function CurrentSpells()
@@ -145,7 +226,7 @@ local function RegisterOptions()
             end
             local function AddSpellPopup()
                 EUI:ShowInputPopup({
-                    title = "Add Tracked Buff",
+                    title = "Add Extra Spell",
                     message = "Enter a buff spell ID or paste a spell link.",
                     confirmText = "Add", cancelText = "Cancel",
                     onConfirm = function(text)
@@ -164,20 +245,64 @@ local function RegisterOptions()
                 local icon = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id)
                 return { key = id, label = name or ("Spell " .. tostring(id)), icon = icon }
             end
-            local function Items()
-                local entries = {}
-                local spells = CurrentSpells()
-                for i = 1, #spells do entries[#entries + 1] = SpellEntry(spells[i]) end
-                table.sort(entries, function(a, b) return a.label < b.label end)
-                local items = {
-                    { isTopAction = true, label = "Add Spell ID", onClick = AddSpellPopup },
-                }
-                if #entries > 0 then
-                    items[#items + 1] = { isHeader = true, label = "Selected" }
-                    for i = 1, #entries do items[#items + 1] = entries[i] end
-                else
-                    items[#items + 1] = { isHeader = true, label = "No buffs selected" }
+            local function PresetUniverse()
+                local pab = PlayerAuraBarsNS()
+                local source = pab and pab.PAB_AllPresetSpells and pab.PAB_AllPresetSpells() or {}
+                local result, seenNames = {}, {}
+                for i = 1, #source do
+                    local id = source[i]
+                    local name = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)
+                    local key = name or ("id:" .. tostring(id))
+                    if not seenNames[key] then
+                        seenNames[key] = true
+                        result[#result + 1] = id
+                    end
                 end
+                return result
+            end
+            local function Items()
+                local pab = PlayerAuraBarsNS()
+                local covered = {}
+                local selectedFilters = ns.Get("auraDurationFilters")
+                if pab and type(selectedFilters) == "table" and pab.PAB_GetFilter then
+                    for filterID, enabled in pairs(selectedFilters) do
+                        local filter = enabled and pab.PAB_GetFilter(filterID)
+                        if filter and type(filter.spells) == "table" then
+                            for id, on in pairs(filter.spells) do
+                                if on and not (pab.PAB_OtherClientSpell
+                                    and pab.PAB_OtherClientSpell(filter, id)) then
+                                    covered[id] = true
+                                end
+                            end
+                        end
+                    end
+                end
+
+                local selected, presets, seen = {}, {}, {}
+                local spells = CurrentSpells()
+                for i = 1, #spells do
+                    seen[spells[i]] = true
+                    selected[#selected + 1] = SpellEntry(spells[i])
+                end
+                local universe = PresetUniverse()
+                for i = 1, #universe do
+                    local id = universe[i]
+                    if not seen[id] and not covered[id] then
+                        presets[#presets + 1] = SpellEntry(id)
+                    end
+                end
+                local function ByLabel(a, b) return a.label < b.label end
+                table.sort(selected, ByLabel)
+                table.sort(presets, ByLabel)
+                local items = {
+                    { isTopAction = true, label = "Custom Spell ID", onClick = AddSpellPopup },
+                }
+                if #selected > 0 then
+                    items[#items + 1] = { isHeader = true, label = "Selected" }
+                    for i = 1, #selected do items[#items + 1] = selected[i] end
+                end
+                items[#items + 1] = { isHeader = true, label = "Presets" }
+                for i = 1, #presets do items[#items + 1] = presets[i] end
                 return items
             end
             local dropdown, refresh = EUI.BuildVisOptsCBDropdown(
@@ -188,8 +313,15 @@ local function RegisterOptions()
                     if enabled then
                         if not HasSpell(id) then spells[#spells + 1] = id end
                     else
+                        local pab = PlayerAuraBarsNS()
+                        local family = pab and pab.PAB_SPELL_FAMILY and pab.PAB_SPELL_FAMILY[id]
                         for i = #spells, 1, -1 do
-                            if tonumber(spells[i]) == tonumber(id) then table.remove(spells, i) end
+                            local spellID = tonumber(spells[i])
+                            if spellID == tonumber(id)
+                                or (family and spellID
+                                    and pab.PAB_SPELL_FAMILY[spellID] == family) then
+                                table.remove(spells, i)
+                            end
                         end
                     end
                     SetSpells(spells)
@@ -217,7 +349,11 @@ local function RegisterOptions()
         _, h = W:DualRow(parent, y,
             Slider("auraDurationBarOffsetX", "Horizontal Offset", -300, 300, 1,
                 "Horizontal position relative to the centre of the player unit frame.", auraOff),
-            nil)
+            { type = "dropdown", text = "Bar Texture",
+              values = auraTextureValues, order = auraTextureOrder,
+              disabled = auraOff,
+              getValue = function() return ns.Get("auraDurationBarTexture") end,
+              setValue = function(value) ns.Set("auraDurationBarTexture", value) end })
         y = y - h
 
         local function SetAuraColorMode(mode)

@@ -29,6 +29,7 @@ local DEFAULTS = {
     showPlayerWhileChanneling = true,
     alwaysGatheringTracking = true,
     auraDurationBars = true,
+    auraDurationFilters = {},
     auraDurationSpellIDs = {},
     auraDurationBarWidth = 240,
     auraDurationBarHeight = 20,

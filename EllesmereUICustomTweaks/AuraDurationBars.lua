@@ -20,13 +20,14 @@ local textures = EUI.BuildBarTextureTables and EUI.BuildBarTextureTables() or {}
 local host
 local container
 local applyQueued = false
+local nativeFiltersHooked = false
 
 local function Number(key, fallback)
     local value = tonumber(ns.Get(key))
     return value or fallback
 end
 
-local function SpellIDs()
+local function DirectSpellIDs()
     local source = ns.Get("auraDurationSpellIDs")
     local result, seen = {}, {}
     if type(source) ~= "table" then return result end
@@ -38,6 +39,37 @@ local function SpellIDs()
         end
     end
     return result
+end
+
+local function UnitFramesNS()
+    return EUI._ModuleNS and EUI._ModuleNS["EllesmereUIUnitFrames"]
+end
+
+-- Use the same resolver as native Player Aura Bars.  Besides unioning every
+-- selected filter with Extra Spells, it expands rank/talent/state families and
+-- ignores preset entries that belong only to the other game client.
+local function SpellIDs()
+    local unitFrames = UnitFramesNS()
+    local resolver = unitFrames and unitFrames.PAB_ResolveSpells
+    if type(resolver) == "function" then
+        local ok, result = pcall(resolver, {
+            showAllBuffs = false,
+            filters = ns.Get("auraDurationFilters"),
+            spells = ns.Get("auraDurationSpellIDs"),
+        })
+        if ok and type(result) == "table" then return result end
+    end
+    return DirectSpellIDs()
+end
+
+local function InstallNativeFilterHook()
+    if nativeFiltersHooked or type(hooksecurefunc) ~= "function" then return end
+    local unitFrames = UnitFramesNS()
+    if not (unitFrames and type(unitFrames.PAB_ApplyLiveConfig) == "function") then return end
+    hooksecurefunc(unitFrames, "PAB_ApplyLiveConfig", function()
+        ns.ApplyAuraDurationBars()
+    end)
+    nativeFiltersHooked = true
 end
 
 local function BarColor()
@@ -338,6 +370,7 @@ local function ApplyNow()
 end
 
 function ns.ApplyAuraDurationBars()
+    InstallNativeFilterHook()
     if applyQueued then return end
     applyQueued = true
     C_Timer.After(0, function()
@@ -351,6 +384,7 @@ events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:RegisterEvent("ADDON_LOADED")
 events:SetScript("OnEvent", function(_, event, addonName)
     if event ~= "ADDON_LOADED" or addonName == "EllesmereUIUnitFrames" then
+        InstallNativeFilterHook()
         ns.ApplyAuraDurationBars()
     end
 end)
