@@ -19,6 +19,7 @@ local textures = EUI.BuildBarTextureTables and EUI.BuildBarTextureTables() or {}
 
 local host
 local container
+local containerSpellSignature
 local applyQueued = false
 local nativeFiltersHooked = false
 
@@ -291,6 +292,28 @@ local function CandidateFilters(ids)
     return { includeSpellIDs = include }
 end
 
+local function SpellSignature(ids)
+    return table.concat(ids, ",")
+end
+
+-- AuraContainer candidate filters are declaration-fixed: changing them later
+-- with SetAuraGroupCandidateFilters does not make the engine retake the new
+-- spell-ID map.  Retire our dedicated container whenever the resolved filter
+-- selection changes, matching native Player Aura Bars' custom-buff lifecycle.
+local function RetireContainer()
+    if not container then return end
+    if AK.SetGroupCap then
+        pcall(AK.SetGroupCap, container, GROUP_KEY, 0)
+    end
+    if AK.ReleaseContainer then
+        AK.ReleaseContainer(container)
+    else
+        container:Hide()
+    end
+    container = nil
+    containerSpellSignature = nil
+end
+
 local function SortMethod()
     local methods = _G.AuraContainerSortMethod
     return methods and (methods.ExpirationOnly or methods.Expiration or methods.Default)
@@ -302,7 +325,12 @@ local function SortDirection()
 end
 
 local function EnsureContainer(ids)
+    local signature = SpellSignature(ids)
+    if container and containerSpellSignature ~= signature then
+        RetireContainer()
+    end
     if container then return container end
+    if #ids == 0 then return nil end
     local frame = EnsureHost()
     local Flow = AnchorUtil and AnchorUtil.FlowDirection
     local spec = {
@@ -325,7 +353,10 @@ local function EnsureContainer(ids)
             layout = GroupLayout(),
         }},
     }
-    AK.RequestContainer(frame, "player", spec, function(value) container = value end)
+    AK.RequestContainer(frame, "player", spec, function(value)
+        container = value
+        containerSpellSignature = signature
+    end)
     return container
 end
 
@@ -388,3 +419,4 @@ events:SetScript("OnEvent", function(_, event, addonName)
         ns.ApplyAuraDurationBars()
     end
 end)
+
