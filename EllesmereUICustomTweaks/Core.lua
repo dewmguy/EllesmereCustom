@@ -231,10 +231,12 @@ local function AnyPlayerRevealEnabled()
         or ns.Get("showPlayerWhileChanneling")
 end
 
-local function SafeLessThan(current, maximum)
-    if IsSecret(current) or IsSecret(maximum) then return false end
-    return type(current) == "number" and type(maximum) == "number"
-        and maximum > 0 and current < maximum
+local function MissingResourceState(current, maximum)
+    if IsSecret(current) or IsSecret(maximum) then return nil end
+    if type(current) ~= "number" or type(maximum) ~= "number" or maximum <= 0 then
+        return false
+    end
+    return current < maximum
 end
 
 local function PlayerHasRegenAura()
@@ -258,24 +260,72 @@ local function PlayerHasRegenAura()
     return false
 end
 
-function ns.PlayerRevealActive()
-    if ns.Get("showPlayerOnMissingHealth")
-        and SafeLessThan(UnitHealth("player"), UnitHealthMax("player")) then
-        return true
+local function ResourceRevealCurve(frame, resource, baseAlpha)
+    local curveKey = resource == "health"
+        and "_euiCustomHealthRevealCurve" or "_euiCustomManaRevealCurve"
+    local alphaKey = resource == "health"
+        and "_euiCustomHealthRevealBase" or "_euiCustomManaRevealBase"
+    local curve = frame[curveKey]
+    if not curve then
+        curve = C_CurveUtil.CreateCurve()
+        curve:SetType(Enum.LuaCurveType.Step)
+        frame[curveKey] = curve
+    end
+    if frame[alphaKey] ~= baseAlpha then
+        curve:ClearPoints()
+        curve:AddPoint(0, 1)
+        curve:AddPoint(1, baseAlpha)
+        frame[alphaKey] = baseAlpha
+    end
+    return curve
+end
+
+-- Return the alpha for the custom reveal, preserving Ellesmere's normal alpha
+-- when no rule matches. Health and power values become protected secrets in
+-- combat on modern clients, so a secret value is never used as a Lua condition.
+-- A single enabled resource can use Blizzard's curve API exactly. If both are
+-- enabled and either value is protected, the safe union is to keep the player
+-- frame visible until combat ends; Lua cannot combine two secret percentages.
+local function PlayerRevealAlpha(frame, baseAlpha)
+    if ns.Get("showPlayerWhileEating") and PlayerHasRegenAura() then return 1 end
+    if ns.Get("showPlayerWhileChanneling") and UnitChannelInfo("player") then
+        return 1
     end
 
-    if ns.Get("showPlayerOnMissingMana") then
-        local mana = _G.Enum and Enum.PowerType and Enum.PowerType.Mana or 0
-        if SafeLessThan(UnitPower("player", mana), UnitPowerMax("player", mana)) then
-            return true
+    local healthEnabled = ns.Get("showPlayerOnMissingHealth")
+    local manaEnabled = ns.Get("showPlayerOnMissingMana")
+    local mana = _G.Enum and Enum.PowerType and Enum.PowerType.Mana or 0
+    local healthMissing
+    local manaMissing
+
+    if healthEnabled then
+        healthMissing = MissingResourceState(UnitHealth("player"), UnitHealthMax("player"))
+        if healthMissing == true then return 1 end
+    end
+    if manaEnabled then
+        local manaMaximum = UnitPowerMax("player", mana)
+        -- Classes without a mana pool should not turn the two-resource combat
+        -- fallback into an unconditional reveal.
+        if not IsSecret(manaMaximum)
+            and (type(manaMaximum) ~= "number" or manaMaximum <= 0) then
+            manaEnabled = false
+        else
+            manaMissing = MissingResourceState(UnitPower("player", mana), manaMaximum)
+            if manaMissing == true then return 1 end
         end
     end
 
-    if ns.Get("showPlayerWhileEating") and PlayerHasRegenAura() then return true end
-    if ns.Get("showPlayerWhileChanneling") and UnitChannelInfo("player") then
-        return true
+    if healthEnabled and healthMissing == nil then
+        if manaEnabled then return 1 end
+        return UnitHealthPercent("player", false,
+            ResourceRevealCurve(frame, "health", baseAlpha))
     end
-    return false
+    if manaEnabled and manaMissing == nil then
+        if healthEnabled then return 1 end
+        return UnitPowerPercent("player", mana, false,
+            ResourceRevealCurve(frame, "mana", baseAlpha))
+    end
+    return baseAlpha
 end
 
 local function IsCustomRevealFrame(settings, frame)
@@ -297,9 +347,12 @@ local function InstallPlayerRevealHooks()
     local baseHealthEnabled = unitFrames.HealthVisibilityEnabled
     unitFrames.ResolveVisResting = function(settings, frame, extended, hiddenByOptions, inCombat)
         local alpha, hoverGated = baseResolve(settings, frame, extended, hiddenByOptions, inCombat)
-        if not hiddenByOptions and IsCustomRevealFrame(settings, frame)
-            and ns.PlayerRevealActive() then
-            return 1, false
+        if IsCustomRevealFrame(settings, frame) then
+            -- A matching custom rule deliberately overrides native mouseover,
+            -- group, and "Hide If" alpha gates. "Never" remains terminal via
+            -- IsCustomRevealFrame above. Preserve the native hover gate so a
+            -- full-health/full-mana frame still responds to mouseover normally.
+            return PlayerRevealAlpha(frame, alpha), hoverGated
         end
         return alpha, hoverGated
     end
