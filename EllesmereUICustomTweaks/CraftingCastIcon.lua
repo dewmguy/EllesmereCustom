@@ -11,6 +11,7 @@ local _, ns = ...
 
 local activeRecipe
 local hookedBars = setmetatable({}, { __mode = "k" })
+local craftEntrypointsHooked = {}
 local events = CreateFrame("Frame")
 
 local function IsSecret(value)
@@ -78,6 +79,7 @@ local function CaptureRecipe(recipeID)
     if IsSecret(recipeID) or recipeID == nil then return end
     local ticket = {
         recipeID = recipeID,
+        capturedAt = GetTime(),
         expires = GetTime() + 900,
     }
     activeRecipe = ticket
@@ -90,13 +92,43 @@ local function CaptureRecipe(recipeID)
     end
 end
 
-local function PlayerIsCrafting()
-    local ok, result = pcall(function()
-        local name, _, _, _, _, isTradeSkill = UnitCastingInfo("player")
-        if name == nil then
-            name, _, _, _, _, isTradeSkill = UnitChannelInfo("player")
+-- Some Forever profession families (notably Smelting) do not reliably deliver
+-- TRADE_SKILL_CRAFT_BEGIN before the unit cast starts. Capture the recipe at the
+-- function that starts the craft as well. These are secure post-hooks: the
+-- Blizzard functions remain untouched and receive their original arguments.
+local function HookCraftEntrypoints()
+    local trade = _G.C_TradeSkillUI
+    if trade then
+        for _, method in ipairs({ "CraftRecipe", "CraftEnchant", "CraftSalvage" }) do
+            if type(trade[method]) == "function" and not craftEntrypointsHooked[method] then
+                hooksecurefunc(trade, method, function(recipeID)
+                    CaptureRecipe(recipeID)
+                end)
+                craftEntrypointsHooked[method] = true
+            end
         end
-        return name ~= nil and isTradeSkill == true
+    end
+    if type(_G.DoTradeSkill) == "function" and not craftEntrypointsHooked.DoTradeSkill then
+        hooksecurefunc("DoTradeSkill", function(recipeID)
+            CaptureRecipe(recipeID)
+        end)
+        craftEntrypointsHooked.DoTradeSkill = true
+    end
+end
+
+local function PlayerIsCrafting(ticket)
+    local ok, result = pcall(function()
+        local name, _, _, _, _, isTradeSkill, _, _, spellID = UnitCastingInfo("player")
+        if name == nil then
+            name, _, _, _, _, isTradeSkill, _, spellID = UnitChannelInfo("player")
+        end
+        if name == nil then return false end
+        if isTradeSkill == true then return true end
+        if ticket and not IsSecret(spellID) and spellID == ticket.recipeID then return true end
+        -- The secure craft-function hook runs immediately before the cast event.
+        -- This covers clients that omit both the trade-skill flag and recipe
+        -- spell ID, without letting a stale ticket repaint later normal casts.
+        return ticket and GetTime() - (ticket.capturedAt or 0) < 2
     end)
     return ok and result == true
 end
@@ -109,7 +141,7 @@ end
 local function PaintCraftIcon(bar)
     local ticket = activeRecipe
     if not ns.Get("useCraftedItemIcon") or not ticket or not ticket.icon then return end
-    if GetTime() > ticket.expires or not PlayerIsCrafting() then return end
+    if GetTime() > ticket.expires or not PlayerIsCrafting(ticket) then return end
 
     bar = bar or PlayerCastBar()
     if not (bar and bar.Icon and bar.Icon.SetTexture) then return end
@@ -147,18 +179,20 @@ local function HookPlayerCastBar()
 end
 
 function ns.ApplyCraftingCastIcon(repaint)
+    HookCraftEntrypoints()
     HookPlayerCastBar()
     if repaint then PaintCraftIcon() end
 end
 
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
+events:RegisterEvent("TRADE_SKILL_SHOW")
 events:RegisterEvent("TRADE_SKILL_CRAFT_BEGIN")
 events:RegisterEvent("UPDATE_TRADESKILL_CAST_STOPPED")
 events:RegisterEvent("UNIT_SPELLCAST_START")
 events:RegisterEvent("UNIT_SPELLCAST_CHANNEL_START")
 events:RegisterEvent("UNIT_SPELLCAST_FAILED")
 events:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED")
-events:SetScript("OnEvent", function(_, event, unitOrRecipe)
+events:SetScript("OnEvent", function(_, event, unitOrRecipe, castGUID, spellID)
     if event == "TRADE_SKILL_CRAFT_BEGIN" then
         CaptureRecipe(unitOrRecipe)
         return
@@ -173,12 +207,25 @@ events:SetScript("OnEvent", function(_, event, unitOrRecipe)
     end
     if event == "PLAYER_ENTERING_WORLD" then
         activeRecipe = nil
+        HookCraftEntrypoints()
         C_Timer.After(0, HookPlayerCastBar)
+        return
+    end
+    if event == "TRADE_SKILL_SHOW" then
+        HookCraftEntrypoints()
         return
     end
     if unitOrRecipe == "player" then
         -- Run after Ellesmere's cast driver has assigned the generic icon.
         C_Timer.After(0, function()
+            -- UNIT_SPELLCAST_START carries the recipe spell ID even when the
+            -- profession-specific craft-begin event is absent. Only accept an
+            -- ID the profession API resolves as a recipe, and never replace a
+            -- ticket already captured at the crafting entrypoint.
+            if (not activeRecipe or not activeRecipe.icon) and spellID
+                and ResolveRecipeIcon(spellID) then
+                CaptureRecipe(spellID)
+            end
             HookPlayerCastBar()
             PaintCraftIcon()
         end)
