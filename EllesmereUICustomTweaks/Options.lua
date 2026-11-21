@@ -91,6 +91,13 @@ local function RegisterOptions()
                 "Reveals the Ellesmere player frame only while you are channeling a spell."))
         y = y - h
 
+        _, h = W:SectionHeader(parent, "PLAYER CAST BAR", y); y = y - h
+        _, h = W:DualRow(parent, y,
+            Toggle("useCraftedItemIcon", "Show Crafted Item Icon",
+                "Replaces the generic crafting cast icon with the recipe or output-item icon shown by the profession interface."),
+            nil)
+        y = y - h
+
         _, h = W:SectionHeader(parent, "AURA DURATION BARS", y); y = y - h
         local auraOff = function() return not ns.Get("auraDurationBars") end
         local auraEnable = Toggle("auraDurationBars", "Enable Aura Duration Bars",
@@ -525,10 +532,10 @@ local function RegisterOptions()
 
     EUI:RegisterModule(ADDON_NAME, {
         title = "Custom Tweaks",
-        description = "Personal aura bars, minimap, unit-frame, flight timer, and chat refinements for EllesmereUI.",
+        description = "Personal aura bars, cast-bar, minimap, unit-frame, flight timer, and chat refinements for EllesmereUI.",
         pages = { "Tweaks" },
         buildPage = BuildPage,
-        searchTerms = "custom tweaks aura duration bars buffs filter spell timer status cast elvui minimap profession gathering tracking herbs minerals player unit frame health mana eating drinking channeling flight timer you route learn actual time clear chat fade history tabs collapse input border channel",
+        searchTerms = "custom tweaks aura duration bars buffs filter spell timer status cast bar crafted item recipe icon profession crafting queue elvui minimap gathering tracking herbs minerals player unit frame health mana eating drinking channeling flight timer you route learn actual time clear chat fade history tabs collapse input border channel",
         onReset = function()
             ns.Reset()
             if EUI.InvalidatePageCache then EUI:InvalidatePageCache() end

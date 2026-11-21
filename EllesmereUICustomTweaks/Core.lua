@@ -27,6 +27,7 @@ local DEFAULTS = {
     showPlayerOnMissingMana = true,
     showPlayerWhileEating = true,
     showPlayerWhileChanneling = true,
+    useCraftedItemIcon = true,
     alwaysGatheringTracking = true,
     auraDurationBars = true,
     auraDurationFilters = {},
@@ -737,6 +738,7 @@ function ns.ApplyAll()
     RestoreTabs()
     ApplyChatChrome()
     if ns.ApplyFlightTweaks then ns.ApplyFlightTweaks() end
+    if ns.ApplyCraftingCastIcon then ns.ApplyCraftingCastIcon() end
     if ns.ApplyAuraDurationBars then ns.ApplyAuraDurationBars() end
     SyncPlayerRevealEvents()
     SyncGatheringTrackingEvents()
