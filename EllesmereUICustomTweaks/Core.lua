@@ -28,6 +28,19 @@ local DEFAULTS = {
     showPlayerWhileEating = true,
     showPlayerWhileChanneling = true,
     alwaysGatheringTracking = true,
+    auraDurationBars = true,
+    auraDurationSpellIDs = {},
+    auraDurationBarWidth = 240,
+    auraDurationBarHeight = 20,
+    auraDurationBarSpacing = 3,
+    auraDurationBarMax = 8,
+    auraDurationBarOffsetX = 0,
+    auraDurationBarOffsetY = 8,
+    auraDurationBarTexture = "gradient-lr",
+    auraDurationBarColorMode = "accent",
+    auraDurationBarColor = { r = 0.05, g = 0.75, b = 0.58, a = 1 },
+    auraDurationBarShowIcon = true,
+    auraDurationBarShowStacks = true,
 }
 ns.DEFAULTS = DEFAULTS
 
@@ -723,6 +736,7 @@ function ns.ApplyAll()
     RestoreTabs()
     ApplyChatChrome()
     if ns.ApplyFlightTweaks then ns.ApplyFlightTweaks() end
+    if ns.ApplyAuraDurationBars then ns.ApplyAuraDurationBars() end
     SyncPlayerRevealEvents()
     SyncGatheringTrackingEvents()
 

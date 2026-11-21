@@ -44,6 +44,10 @@ local function RegisterOptions()
         local W = EUI.Widgets
         local y = yOffset
         local _, h
+        local auraTexturePaths, auraTextureValues, auraTextureOrder = EUI.BuildBarTextureTables()
+        if EUI.AppendSharedMediaTextures then
+            EUI.AppendSharedMediaTextures(auraTextureValues, auraTextureOrder, nil, auraTexturePaths)
+        end
         if EUI.ClearContentHeader then EUI:ClearContentHeader() end
         parent._showRowDivider = true
 
@@ -85,6 +89,199 @@ local function RegisterOptions()
                 "Reveals the Ellesmere player frame while a food or drink regeneration aura is active."),
             Toggle("showPlayerWhileChanneling", "Show While Channeling",
                 "Reveals the Ellesmere player frame only while you are channeling a spell."))
+        y = y - h
+
+        _, h = W:SectionHeader(parent, "AURA DURATION BARS", y); y = y - h
+        local auraOff = function() return not ns.Get("auraDurationBars") end
+        local auraEnable = Toggle("auraDurationBars", "Enable Aura Duration Bars",
+            "Shows selected player buffs as horizontal duration bars above the player unit frame.")
+        auraEnable.setValue = function(value)
+            ns.Set("auraDurationBars", value)
+            EUI:RefreshPage()
+        end
+        _, h = W:DualRow(parent, y,
+            auraEnable,
+            Slider("auraDurationBarMax", "Maximum Bars", 1, 20, 1,
+                "Maximum number of selected buffs shown at once.", auraOff))
+        y = y - h
+
+        local spellRow
+        spellRow, h = W:DualRow(parent, y,
+            { type = "dropdown", text = "Tracked Buffs",
+              values = { __placeholder = "..." }, order = { "__placeholder" },
+              getValue = function() return "__placeholder" end, setValue = function() end },
+            { type = "dropdown", text = "Bar Texture",
+              values = auraTextureValues, order = auraTextureOrder,
+              disabled = auraOff,
+              getValue = function() return ns.Get("auraDurationBarTexture") end,
+              setValue = function(value) ns.Set("auraDurationBarTexture", value) end })
+        y = y - h
+
+        do
+            local region = spellRow._leftRegion
+            if region and region._control then region._control:Hide() end
+
+            local function CurrentSpells()
+                local source = ns.Get("auraDurationSpellIDs")
+                local copy = {}
+                if type(source) == "table" then
+                    for i = 1, #source do copy[#copy + 1] = source[i] end
+                end
+                return copy
+            end
+            local function HasSpell(id)
+                local spells = ns.Get("auraDurationSpellIDs")
+                if type(spells) ~= "table" then return false end
+                for i = 1, #spells do
+                    if tonumber(spells[i]) == tonumber(id) then return true end
+                end
+                return false
+            end
+            local function SetSpells(spells)
+                table.sort(spells, function(a, b)
+                    return (tonumber(a) or 0) < (tonumber(b) or 0)
+                end)
+                ns.Set("auraDurationSpellIDs", spells)
+            end
+            local function AddSpellPopup()
+                EUI:ShowInputPopup({
+                    title = "Add Tracked Buff",
+                    message = "Enter a buff spell ID or paste a spell link.",
+                    confirmText = "Add", cancelText = "Cancel",
+                    onConfirm = function(text)
+                        text = tostring(text or "")
+                        local id = tonumber(text:match("spell:(%d+)") or text:match("^%s*(%d+)%s*$"))
+                        if not (id and id > 0) or HasSpell(id) then return end
+                        local spells = CurrentSpells()
+                        spells[#spells + 1] = id
+                        SetSpells(spells)
+                        EUI:RefreshPage(true)
+                    end,
+                })
+            end
+            local function SpellEntry(id)
+                local name = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)
+                local icon = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id)
+                return { key = id, label = name or ("Spell " .. tostring(id)), icon = icon }
+            end
+            local function Items()
+                local entries = {}
+                local spells = CurrentSpells()
+                for i = 1, #spells do entries[#entries + 1] = SpellEntry(spells[i]) end
+                table.sort(entries, function(a, b) return a.label < b.label end)
+                local items = {
+                    { isTopAction = true, label = "Add Spell ID", onClick = AddSpellPopup },
+                }
+                if #entries > 0 then
+                    items[#items + 1] = { isHeader = true, label = "Selected" }
+                    for i = 1, #entries do items[#items + 1] = entries[i] end
+                else
+                    items[#items + 1] = { isHeader = true, label = "No buffs selected" }
+                end
+                return items
+            end
+            local dropdown, refresh = EUI.BuildVisOptsCBDropdown(
+                region, 190, region:GetFrameLevel() + 2,
+                Items, HasSpell,
+                function(id, enabled)
+                    local spells = CurrentSpells()
+                    if enabled then
+                        if not HasSpell(id) then spells[#spells + 1] = id end
+                    else
+                        for i = #spells, 1, -1 do
+                            if tonumber(spells[i]) == tonumber(id) then table.remove(spells, i) end
+                        end
+                    end
+                    SetSpells(spells)
+                    EUI:RefreshPage()
+                end,
+                nil, 10, true)
+            EUI.PanelPP.Point(dropdown, "RIGHT", region, "RIGHT", -20, 0)
+            region._control = dropdown
+            region._lastInline = nil
+            EUI.RegisterWidgetRefresh(refresh)
+        end
+
+        _, h = W:DualRow(parent, y,
+            Slider("auraDurationBarWidth", "Bar Width", 120, 500, 5,
+                "Width of each aura timer bar, including its icon.", auraOff),
+            Slider("auraDurationBarHeight", "Bar Height", 14, 40, 1,
+                "Height of each aura timer bar and its icon.", auraOff))
+        y = y - h
+        _, h = W:DualRow(parent, y,
+            Slider("auraDurationBarSpacing", "Bar Spacing", 0, 20, 1,
+                "Vertical space between aura timer bars.", auraOff),
+            Slider("auraDurationBarOffsetY", "Vertical Offset", -100, 200, 1,
+                "Distance above the player unit frame.", auraOff))
+        y = y - h
+        _, h = W:DualRow(parent, y,
+            Slider("auraDurationBarOffsetX", "Horizontal Offset", -300, 300, 1,
+                "Horizontal position relative to the centre of the player unit frame.", auraOff),
+            nil)
+        y = y - h
+
+        local function SetAuraColorMode(mode)
+            if auraOff() then return end
+            ns.Set("auraDurationBarColorMode", mode)
+            EUI:RefreshPage()
+        end
+        local function ClassColor()
+            local classToken = EUI._playerClass
+            if not classToken and UnitClass then
+                local _, token = UnitClass("player")
+                classToken = token
+            end
+            local color = classToken and EUI.GetClassColor and EUI.GetClassColor(classToken)
+            if color then return color.r, color.g, color.b, 1 end
+            return 1, 1, 1, 1
+        end
+        _, h = W:DualRow(parent, y,
+            { type = "multiSwatch", text = "Bar Color", disabled = auraOff,
+              swatches = {
+                  { tooltip = "Custom Color", hasAlpha = true,
+                    getValue = function()
+                        local c = ns.Get("auraDurationBarColor") or ns.DEFAULTS.auraDurationBarColor
+                        return c.r, c.g, c.b, c.a == nil and 1 or c.a
+                    end,
+                    setValue = function(r, g, b, a)
+                        ns.Set("auraDurationBarColor", { r = r, g = g, b = b, a = a })
+                        ns.Set("auraDurationBarColorMode", "custom")
+                    end,
+                    onClick = function(self)
+                        if ns.Get("auraDurationBarColorMode") ~= "custom" then
+                            SetAuraColorMode("custom")
+                            return
+                        end
+                        if self._eabOrigClick then self._eabOrigClick(self) end
+                    end,
+                    refreshAlpha = function()
+                        return ns.Get("auraDurationBarColorMode") == "custom" and 1 or 0.3
+                    end },
+                  { tooltip = "Accent Color", hasAlpha = false,
+                    getValue = function()
+                        if EUI.GetAccentColor then return EUI.GetAccentColor() end
+                        return 1, 1, 1, 1
+                    end,
+                    setValue = function() end,
+                    onClick = function() SetAuraColorMode("accent") end,
+                    refreshAlpha = function()
+                        return (ns.Get("auraDurationBarColorMode") or "accent") == "accent" and 1 or 0.3
+                    end },
+                  { tooltip = "Class Color", hasAlpha = false,
+                    getValue = ClassColor,
+                    setValue = function() end,
+                    onClick = function() SetAuraColorMode("class") end,
+                    refreshAlpha = function()
+                        return ns.Get("auraDurationBarColorMode") == "class" and 1 or 0.3
+                    end },
+              } },
+            Toggle("auraDurationBarShowIcon", "Show Buff Icon",
+                "Shows the buff's icon at the left end of its duration bar."))
+        y = y - h
+        _, h = W:DualRow(parent, y,
+            Toggle("auraDurationBarShowStacks", "Show Stack Count",
+                "Shows stack counts over the buff icon when the aura has more than one application."),
+            nil)
         y = y - h
 
         _, h = W:SectionHeader(parent, "CHAT HISTORY", y); y = y - h
@@ -192,10 +389,10 @@ local function RegisterOptions()
 
     EUI:RegisterModule(ADDON_NAME, {
         title = "Custom Tweaks",
-        description = "Personal minimap, unit-frame, flight timer, and chat refinements for EllesmereUI.",
+        description = "Personal aura bars, minimap, unit-frame, flight timer, and chat refinements for EllesmereUI.",
         pages = { "Tweaks" },
         buildPage = BuildPage,
-        searchTerms = "custom tweaks minimap profession gathering tracking herbs minerals player unit frame health mana eating drinking channeling flight timer you route learn actual time clear chat fade history tabs collapse input border channel",
+        searchTerms = "custom tweaks aura duration bars buffs filter spell timer status cast elvui minimap profession gathering tracking herbs minerals player unit frame health mana eating drinking channeling flight timer you route learn actual time clear chat fade history tabs collapse input border channel",
         onReset = function()
             ns.Reset()
             if EUI.InvalidatePageCache then EUI:InvalidatePageCache() end

@@ -2,14 +2,15 @@
 ## Title: |cff0cd29fEllesmereUI|r Custom Tweaks
 ## Category: |cff0cd29fEllesmere|rUI
 ## Group: EllesmereUI
-## Notes: Update-safe personal minimap, unit-frame, flight timer, and chat refinements for EllesmereUI.
+## Notes: Update-safe personal aura bars, minimap, unit-frame, flight timer, and chat refinements for EllesmereUI.
 ## Author: Jeremy Tilden
-## Version: 1.4.0
+## Version: 1.5.0
 ## Dependencies: EllesmereUI, EllesmereUIChat
 ## OptionalDeps: EllesmereUIForeverEssentials, EllesmereUIUnitFrames
 ## SavedVariables: EllesmereUICustomTweaksDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
 Core.lua
+AuraDurationBars.lua
 FlightTimer.lua
 Options.lua
