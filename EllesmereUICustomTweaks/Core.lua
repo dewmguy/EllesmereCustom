@@ -289,6 +289,12 @@ end
 -- are protected, combat stays visible (the requested safe behavior); outside
 -- combat, the resource whose event triggered the refresh supplies the curve.
 local function PlayerRevealAlpha(frame, baseAlpha, inCombat)
+    -- Taxi flight protects player health and power even out of combat. Feeding
+    -- those secret values through the reveal curves can leave a full-resource
+    -- frame visibly latched for the entire trip. A taxi cannot be interrupted
+    -- to eat, cast, or spend resources, so let native visibility own it.
+    if _G.UnitOnTaxi and UnitOnTaxi("player") then return baseAlpha end
+
     if ns.Get("showPlayerWhileEating") and PlayerHasRegenAura() then return 1 end
     if ns.Get("showPlayerWhileChanneling") and UnitChannelInfo("player") then
         return 1
@@ -435,6 +441,13 @@ local function SyncPlayerRevealEvents()
     end
 
     playerRevealEvents:UnregisterAllEvents()
+    if AnyPlayerRevealEnabled() then
+        -- Repaint immediately when taxi protection begins or ends; resource
+        -- events alone are not guaranteed at either edge of a flight path.
+        playerRevealEvents:RegisterEvent("PLAYER_CONTROL_LOST")
+        playerRevealEvents:RegisterEvent("PLAYER_CONTROL_GAINED")
+        playerRevealEvents:RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED")
+    end
     if ns.Get("showPlayerOnMissingHealth") then
         playerRevealEvents:RegisterUnitEvent("UNIT_HEALTH", "player")
         playerRevealEvents:RegisterUnitEvent("UNIT_MAXHEALTH", "player")
