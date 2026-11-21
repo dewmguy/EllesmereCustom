@@ -58,6 +58,24 @@ local function RegisterOptions()
                     "Keeps your last-used Find Herbs or Find Minerals minimap tracker enabled after login, zoning, death, or another tracker replacing it."),
                 nil)
             y = y - h
+
+            _, h = W:SectionHeader(parent, "QUEST TRACKER", y); y = y - h
+            _, h = W:DualRow(parent, y,
+                Toggle("questTimerFullWidth", "Full-Width Quest Timer Bar",
+                    "Extends the timed-quest bar to the full available quest-tracker row instead of matching the Time Remaining text width."),
+                { type = "multiSwatch", text = "Empty Timer Color",
+                  swatches = {
+                      { tooltip = "Empty Timer Color", hasAlpha = true,
+                        getValue = function()
+                            local c = ns.Get("questTimerEmptyColor") or ns.DEFAULTS.questTimerEmptyColor
+                            return c.r or 0.15, c.g or 0.15, c.b or 0.15,
+                                c.a == nil and 0.8 or c.a
+                        end,
+                        setValue = function(r, g, b, a)
+                            ns.Set("questTimerEmptyColor", { r = r, g = g, b = b, a = a })
+                        end },
+                  } })
+            y = y - h
         end
 
         _, h = W:SectionHeader(parent, "FLIGHT TIMER", y); y = y - h
@@ -532,10 +550,10 @@ local function RegisterOptions()
 
     EUI:RegisterModule(ADDON_NAME, {
         title = "Custom Tweaks",
-        description = "Personal aura bars, cast-bar, minimap, unit-frame, flight timer, and chat refinements for EllesmereUI.",
+        description = "Personal aura bars, cast-bar, quest-tracker, minimap, unit-frame, flight timer, and chat refinements for EllesmereUI.",
         pages = { "Tweaks" },
         buildPage = BuildPage,
-        searchTerms = "custom tweaks aura duration bars buffs filter spell timer status cast bar crafted item recipe icon profession crafting queue elvui minimap gathering tracking herbs minerals player unit frame health mana eating drinking channeling flight timer you route learn actual time clear chat fade history tabs collapse input border channel",
+        searchTerms = "custom tweaks aura duration bars buffs filter spell timer status cast bar crafted item recipe icon profession crafting queue quest tracker timed quest time remaining full width empty background color elvui minimap gathering tracking herbs minerals player unit frame health mana eating drinking channeling flight timer you route learn actual time clear chat fade history tabs collapse input border channel",
         onReset = function()
             ns.Reset()
             if EUI.InvalidatePageCache then EUI:InvalidatePageCache() end

@@ -28,6 +28,8 @@ local DEFAULTS = {
     showPlayerWhileEating = true,
     showPlayerWhileChanneling = true,
     useCraftedItemIcon = true,
+    questTimerFullWidth = true,
+    questTimerEmptyColor = { r = 0.15, g = 0.15, b = 0.15, a = 0.8 },
     alwaysGatheringTracking = true,
     auraDurationBars = true,
     auraDurationFilters = {},
@@ -739,6 +741,7 @@ function ns.ApplyAll()
     ApplyChatChrome()
     if ns.ApplyFlightTweaks then ns.ApplyFlightTweaks() end
     if ns.ApplyCraftingCastIcon then ns.ApplyCraftingCastIcon() end
+    if ns.ApplyQuestTimerTweaks then ns.ApplyQuestTimerTweaks() end
     if ns.ApplyAuraDurationBars then ns.ApplyAuraDurationBars() end
     SyncPlayerRevealEvents()
     SyncGatheringTrackingEvents()
