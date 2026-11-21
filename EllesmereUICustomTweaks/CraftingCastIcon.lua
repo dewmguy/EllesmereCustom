@@ -33,21 +33,18 @@ local function SafeCall(func, ...)
     if ok and not IsSecret(result) then return result end
 end
 
--- The profession UI reads these same structures for its recipe and output
--- display.  Output data is preferred because it follows recipes whose result
--- differs from their spell icon; the schematic and recipe info are stable
--- fallbacks for enchants, salvage, and recipes without an item result.
+-- The profession list paints recipeInfo.icon directly, so it is the authority
+-- for the icon the player saw before pressing Create.  Forever can return an
+-- unrelated icon from GetRecipeOutputItemData when that function is called
+-- without the profession form's reagent transaction (Roasted Boar Meat is one
+-- known example), so output data is deliberately only a fallback here.
 local function ResolveRecipeIcon(recipeID)
     if IsSecret(recipeID) or recipeID == nil then return end
     local trade = _G.C_TradeSkillUI
     if not trade then return end
 
-    local output = SafeCall(trade.GetRecipeOutputItemData, recipeID)
-    local icon = type(output) == "table" and UsableTexture(output.icon)
-    if icon then return icon end
-
     local info = SafeCall(trade.GetRecipeInfo, recipeID)
-    icon = type(info) == "table" and UsableTexture(info.icon)
+    local icon = type(info) == "table" and UsableTexture(info.icon)
     if icon then return icon end
 
     local recraftValue = type(info) == "table" and info.isRecraft or nil
@@ -56,6 +53,10 @@ local function ResolveRecipeIcon(recipeID)
     if IsSecret(recipeLevel) then recipeLevel = nil end
     local schematic = SafeCall(trade.GetRecipeSchematic, recipeID, isRecraft, recipeLevel)
     icon = type(schematic) == "table" and UsableTexture(schematic.icon)
+    if icon then return icon end
+
+    local output = SafeCall(trade.GetRecipeOutputItemData, recipeID)
+    icon = type(output) == "table" and UsableTexture(output.icon)
     if icon then return icon end
 
     local itemID = type(output) == "table" and output.itemID
