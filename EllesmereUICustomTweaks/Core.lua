@@ -209,6 +209,8 @@ end
 local playerRevealHooked = false
 local playerRevealPending = false
 local playerRevealEvents
+local playerRevealResource = "health"
+local playerRevealVisState = {}
 
 local PLAYER_REGEN_AURAS = {}
 for _, spellID in ipairs({
@@ -283,10 +285,10 @@ end
 -- Return the alpha for the custom reveal, preserving Ellesmere's normal alpha
 -- when no rule matches. Health and power values become protected secrets in
 -- combat on modern clients, so a secret value is never used as a Lua condition.
--- A single enabled resource can use Blizzard's curve API exactly. If both are
--- enabled and either value is protected, the safe union is to keep the player
--- frame visible until combat ends; Lua cannot combine two secret percentages.
-local function PlayerRevealAlpha(frame, baseAlpha)
+-- A single protected resource can use Blizzard's curve API exactly. When both
+-- are protected, combat stays visible (the requested safe behavior); outside
+-- combat, the resource whose event triggered the refresh supplies the curve.
+local function PlayerRevealAlpha(frame, baseAlpha, inCombat)
     if ns.Get("showPlayerWhileEating") and PlayerHasRegenAura() then return 1 end
     if ns.Get("showPlayerWhileChanneling") and UnitChannelInfo("player") then
         return 1
@@ -315,13 +317,22 @@ local function PlayerRevealAlpha(frame, baseAlpha)
         end
     end
 
-    if healthEnabled and healthMissing == nil then
-        if manaEnabled then return 1 end
+    local healthProtected = healthEnabled and healthMissing == nil
+    local manaProtected = manaEnabled and manaMissing == nil
+    if healthProtected and manaProtected then
+        if inCombat then return 1 end
+        if playerRevealResource == "mana" then
+            return UnitPowerPercent("player", mana, false,
+                ResourceRevealCurve(frame, "mana", baseAlpha))
+        end
         return UnitHealthPercent("player", false,
             ResourceRevealCurve(frame, "health", baseAlpha))
     end
-    if manaEnabled and manaMissing == nil then
-        if healthEnabled then return 1 end
+    if healthProtected then
+        return UnitHealthPercent("player", false,
+            ResourceRevealCurve(frame, "health", baseAlpha))
+    end
+    if manaProtected then
         return UnitPowerPercent("player", mana, false,
             ResourceRevealCurve(frame, "mana", baseAlpha))
     end
@@ -337,6 +348,32 @@ local function IsCustomRevealFrame(settings, frame)
     return (override or settings.barVisibility or "always") ~= "never"
 end
 
+local function CustomRevealVetoed(settings, hiddenByOptions, inCombat)
+    -- Ellesmere defines every checked Hide lane as an unconditional veto.
+    -- Custom reveal rules may supplement Show lanes, but must never outvote a
+    -- currently firing Hide lane. A temporary Visibility override replaces the
+    -- underlying configuration and therefore bypasses its stored vetoes.
+    local override = EUI.VisOverrideValue and EUI.VisOverrideValue(settings)
+    if override then return false end
+    if EUI.VisOptionHideVeto then
+        if EUI.VisOptionHideVeto(settings) then return true end
+    elseif hiddenByOptions then
+        -- Compatibility with an older Ellesmere visibility engine that does
+        -- not expose separate Show-lane and Hide-lane evaluation.
+        return true
+    end
+
+    local selection = EUI.GetActiveVisibilityModes
+        and EUI.GetActiveVisibilityModes(settings, "barVisibility")
+    if not (selection and EUI.VisModeHideVeto) then return false end
+    local inRaid = IsInRaid()
+    playerRevealVisState.inCombat = inCombat and true or false
+    playerRevealVisState.inRaid = inRaid
+    playerRevealVisState.inParty = not inRaid and IsInGroup()
+    return EUI.VisModeHideVeto(
+        selection, playerRevealVisState, EUI.VIS_CAPS_DEFAULT) and true or false
+end
+
 local function InstallPlayerRevealHooks()
     if playerRevealHooked then return true end
     local unitFrames = UnitFramesNS()
@@ -347,12 +384,12 @@ local function InstallPlayerRevealHooks()
     local baseHealthEnabled = unitFrames.HealthVisibilityEnabled
     unitFrames.ResolveVisResting = function(settings, frame, extended, hiddenByOptions, inCombat)
         local alpha, hoverGated = baseResolve(settings, frame, extended, hiddenByOptions, inCombat)
-        if IsCustomRevealFrame(settings, frame) then
-            -- A matching custom rule deliberately overrides native mouseover,
-            -- group, and "Hide If" alpha gates. "Never" remains terminal via
-            -- IsCustomRevealFrame above. Preserve the native hover gate so a
-            -- full-health/full-mana frame still responds to mouseover normally.
-            return PlayerRevealAlpha(frame, alpha), hoverGated
+        if IsCustomRevealFrame(settings, frame)
+            and not CustomRevealVetoed(settings, hiddenByOptions, inCombat) then
+            -- Custom rules supplement native Show conditions. Explicit Hide
+            -- lanes and Never remain terminal. Preserve the native hover gate
+            -- so a full-resource frame still responds to mouseover normally.
+            return PlayerRevealAlpha(frame, alpha, inCombat), hoverGated
         end
         return alpha, hoverGated
     end
@@ -384,8 +421,15 @@ end
 local function SyncPlayerRevealEvents()
     if not playerRevealEvents then
         playerRevealEvents = CreateFrame("Frame")
-        playerRevealEvents:SetScript("OnEvent", function(_, _, unit)
+        playerRevealEvents:SetScript("OnEvent", function(_, event, unit, powerToken)
             if unit and unit ~= "player" then return end
+            if event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then
+                playerRevealResource = "health"
+            elseif event == "UNIT_POWER_FREQUENT" or event == "UNIT_POWER_UPDATE"
+                or event == "UNIT_MAXPOWER" or event == "UNIT_DISPLAYPOWER" then
+                if powerToken and powerToken ~= "MANA" then return end
+                playerRevealResource = "mana"
+            end
             QueuePlayerRevealRefresh()
         end)
     end
