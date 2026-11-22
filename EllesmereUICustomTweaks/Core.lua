@@ -48,7 +48,6 @@ local DEFAULTS = {
     auraDurationBarShowIcon = true,
     auraDurationBarShowStacks = true,
     durableLootSession = true,
-    lootSessionTimeoutHours = 8,
 }
 ns.DEFAULTS = DEFAULTS
 

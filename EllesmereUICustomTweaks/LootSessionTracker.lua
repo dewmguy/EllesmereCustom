@@ -46,13 +46,17 @@ local function RawDB()
 end
 
 local function CharacterKey()
-    local guid = UnitGUID and UnitGUID("player")
-    if guid and not (_G.issecretvalue and issecretvalue(guid)) then return guid end
     local name, realm
     if UnitFullName then name, realm = UnitFullName("player") end
     if not name then name = UnitName and UnitName("player") end
+    if not name or (_G.issecretvalue and issecretvalue(name)) then return stateKey end
     if not realm or realm == "" then realm = GetRealmName and GetRealmName() or "?" end
     return tostring(name or "?") .. "-" .. tostring(realm)
+end
+
+local function LegacyCharacterKey()
+    local guid = UnitGUID and UnitGUID("player")
+    if guid and not (_G.issecretvalue and issecretvalue(guid)) then return guid end
 end
 
 local function EmptyState()
@@ -81,18 +85,24 @@ end
 
 local function SessionState()
     local key = CharacterKey()
+    if not key then
+        state = state or EmptyState()
+        return state
+    end
     if state and stateKey == key then return state end
 
     local db = RawDB()
     db.lootSessions = type(db.lootSessions) == "table" and db.lootSessions or {}
-    local saved = NormalizeState(db.lootSessions[key])
-    local now = time and time() or 0
-    local timeout = math.max(1, tonumber(ns.Get("lootSessionTimeoutHours")) or 8) * 3600
-    if saved.started and saved.lastSeen > 0 and now > saved.lastSeen
-        and now - saved.lastSeen >= timeout then
-        saved = EmptyState()
+    local saved = db.lootSessions[key]
+    local legacyKey = LegacyCharacterKey()
+    if type(saved) ~= "table" and legacyKey and legacyKey ~= key then
+        saved = db.lootSessions[legacyKey]
     end
+    saved = NormalizeState(saved)
     db.lootSessions[key] = saved
+    -- Retain the GUID alias as a redundant copy and as a downgrade path for
+    -- versions that predate the stable name-realm key.
+    if legacyKey and legacyKey ~= key then db.lootSessions[legacyKey] = saved end
     state, stateKey = saved, key
     return saved
 end
@@ -515,9 +525,11 @@ function ns.ResetLootSession()
     CommitElapsed(true)
     local db = RawDB()
     db.lootSessions = type(db.lootSessions) == "table" and db.lootSessions or {}
-    stateKey = CharacterKey()
+    stateKey = CharacterKey() or stateKey
     state = EmptyState()
-    db.lootSessions[stateKey] = state
+    if stateKey then db.lootSessions[stateKey] = state end
+    local legacyKey = LegacyCharacterKey()
+    if legacyKey and legacyKey ~= stateKey then db.lootSessions[legacyKey] = state end
     if tracking then SetBaselines() end
     PaintSummary()
 end
@@ -574,4 +586,3 @@ updateTicker = C_Timer.NewTicker(5, function()
     end
     PaintSummary()
 end)
-

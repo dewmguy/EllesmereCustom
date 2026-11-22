@@ -79,25 +79,19 @@ local function RegisterOptions()
 
             _, h = W:SectionHeader(parent, "LOOT FEED SESSION", y); y = y - h
             local durableLoot = Toggle("durableLootSession", "Persist Gold and XP Session",
-                "Caches this character's Loot Feed gold and XP counters across reloads and relogs. Offline time is excluded from the hourly-rate clock.")
+                "Caches this character's Loot Feed gold and XP counters across reloads and relogs until Reset Cached Session is used. Offline time is excluded from the hourly-rate clock.")
             durableLoot.setValue = function(value)
                 ns.Set("durableLootSession", value)
                 EUI:RefreshPage()
             end
             _, h = W:DualRow(parent, y,
                 durableLoot,
-                Slider("lootSessionTimeoutHours", "Reset After Offline", 1, 48, 1,
-                    "Starts a fresh session after this many consecutive hours offline. Short reloads and relogs keep the existing session.",
-                    function() return not ns.Get("durableLootSession") end))
-            y = y - h
-            _, h = W:DualRow(parent, y,
                 { type = "button", text = "Reset Cached Session",
                   tooltip = "Clears the durable Loot Feed gold, spending, XP, and elapsed-time counters for this character.",
                   disabled = function() return not ns.Get("durableLootSession") end,
                   onClick = function()
                       if ns.ResetLootSession then ns.ResetLootSession() end
-                  end },
-                nil)
+                  end })
             y = y - h
         end
 
