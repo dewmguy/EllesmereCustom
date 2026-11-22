@@ -2,16 +2,15 @@
 ## Title: |cff0cd29fEllesmereUI|r Custom Tweaks
 ## Category: |cff0cd29fEllesmere|rUI
 ## Group: EllesmereUI
-## Notes: Update-safe personal aura bars, cast-bar, quest-tracker, minimap, unit-frame, flight timer, and chat refinements for EllesmereUI.
+## Notes: Update-safe personal aura bars, quest-tracker, minimap, unit-frame, flight timer, and chat refinements for EllesmereUI.
 ## Author: Jeremy Tilden
-## Version: 1.9.1
+## Version: 1.9.2
 ## Dependencies: EllesmereUI, EllesmereUIChat
 ## OptionalDeps: EllesmereUIForeverEssentials, EllesmereUIUnitFrames, EllesmereUIQuestTracker
 ## SavedVariables: EllesmereUICustomTweaksDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
 Core.lua
-CraftingCastIcon.lua
 QuestTimer.lua
 LootSessionTracker.lua
 AuraDurationBars.lua
