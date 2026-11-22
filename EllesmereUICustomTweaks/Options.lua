@@ -103,10 +103,21 @@ local function RegisterOptions()
 
         _, h = W:SectionHeader(parent, "FLIGHT TIMER", y); y = y - h
         _, h = W:DualRow(parent, y,
-            Toggle("hideFlightYou", "Hide Center 'You' Label",
-                "Keeps the centre route marker but removes its redundant You label."),
+            Toggle("hideFlightYou", "Hide Center 'You' Marker",
+                "Removes the centre marker and its redundant You label."),
+            Toggle("fixedFlightPoints", "Fixed Flight-Point Markers",
+                "Places every point at its route position on the bar. Point names appear only while hovering their markers."))
+        y = y - h
+        _, h = W:DualRow(parent, y,
+            Toggle("smartFlightExit", "Smart Early Exit",
+                "Shows Ellesmere's early-exit button only while the route still has an intermediate flight point ahead."),
+            Toggle("hideBlizzardFlightExit", "Hide Blizzard Flight Exit",
+                "Hides Blizzard's duplicate early-landing button during taxi flights without affecting vehicle exit buttons."))
+        y = y - h
+        _, h = W:DualRow(parent, y,
             Toggle("learnFlightTimes", "Learn Actual Route Times",
-                "Records clean completed flights by their complete route and uses the learned time for future timers and flight-point tooltips."))
+                "Records clean completed flights by their complete route and uses the learned time for future timers and flight-point tooltips."),
+            nil)
         y = y - h
         _, h = W:DualRow(parent, y,
             { type = "button", text = "Clear Learned Route Times",
@@ -576,7 +587,7 @@ local function RegisterOptions()
         description = "Personal aura bars, cast-bar, quest-tracker, minimap, unit-frame, flight timer, and chat refinements for EllesmereUI.",
         pages = { "Tweaks" },
         buildPage = BuildPage,
-        searchTerms = "custom tweaks aura duration bars buffs filter spell timer status cast bar crafted item recipe icon profession crafting queue quest tracker timed quest time remaining full width empty background color elvui minimap gathering tracking herbs minerals player unit frame health mana eating drinking channeling flight timer you route learn actual time clear chat fade history tabs collapse input border channel",
+        searchTerms = "custom tweaks aura duration bars buffs filter spell timer status cast bar crafted item recipe icon profession crafting queue quest tracker timed quest time remaining full width empty background color elvui minimap gathering tracking herbs minerals player unit frame health mana eating drinking channeling flight timer you route fixed marker flight point hover early exit blizzard learn actual time clear chat fade history tabs collapse input border channel",
         onReset = function()
             ns.Reset()
             if EUI.InvalidatePageCache then EUI:InvalidatePageCache() end
@@ -598,4 +609,3 @@ if not RegisterOptions() then
     end)
     if EUI.RegisterOnShow then EUI:RegisterOnShow(RegisterOptions) end
 end
-

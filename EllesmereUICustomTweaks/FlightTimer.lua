@@ -2,10 +2,10 @@
 -- EllesmereUI Custom Tweaks: flight timer refinements.
 --
 -- Forever Essentials continues to own the flight bar, styling, mover, route
--- data, and native fallback estimate.  This file layers learned route times on
--- top: it records clean completed flights, replaces the ETA presentation when
--- that exact directed route is known, and adds the estimate to taxi tooltips.
--- No EllesmereUI file needs to be modified for the feature to work.
+-- data, and native fallback estimate.  This file overlays fixed, hover-labelled
+-- route points, trims the duplicate exit controls, and layers learned route
+-- times on top.  No EllesmereUI file needs to be modified for the feature to
+-- work.
 -------------------------------------------------------------------------------
 local _, ns = ...
 local EUI = _G.EllesmereUI
@@ -13,7 +13,9 @@ if not (EUI and EUI.IS_FOREVER) then return end
 
 local DEFAULT_SPEED = 30.4
 local ROUTE_HISTORY = 5
-local LOOKAHEAD = 60
+local STOP_ICON = "Interface\\Minimap\\Tracking\\FlightMaster"
+local POINT_SIZE = 14
+local NATIVE_LOOKAHEAD = 60
 
 local pending
 local active
@@ -21,7 +23,7 @@ local taxiHooked
 local landingHooked
 local classicTooltipHooked
 local flightMapTooltipHooked
-local labelElapsed = 0
+local routeElapsed = 0
 
 local function DB()
     local db = _G.EllesmereUICustomTweaksDB
@@ -85,10 +87,13 @@ local function FlightBar()
     return ok and frame or nil
 end
 
-local function HideFlightLabel()
-    local bar = FlightBar()
-    local label = bar and bar.you and bar.you.label
-    if label then label:SetAlpha(0) end
+local function HideFlightCenter(bar)
+    bar = bar or FlightBar()
+    if not bar then return end
+    if bar.you then
+        if bar.you.icon then bar.you.icon:Hide() end
+        if bar.you.label then bar.you.label:Hide() end
+    end
 end
 
 -- Build a stable directed key from every node on the selected path.  Names are
@@ -138,6 +143,133 @@ local function RouteInfo(slot)
         yards = totalYards,
         staticBase = totalYards and totalYards / NativeSpeed() or nil,
     }
+end
+
+local function HideNativeMarks(marks)
+    for _, mark in ipairs(marks or {}) do
+        if mark.icon then mark.icon:Hide() end
+        if mark.label then mark.label:Hide() end
+    end
+end
+
+local function HideFixedRoute(bar)
+    local route = bar and bar.customTweaksRoute
+    if route then route:Hide() end
+end
+
+local function SuppressNativeRoute(bar)
+    if not bar then return end
+    if ns.Get("fixedFlightPoints") then
+        if bar.clip then
+            if bar.clip.glide then bar.clip.glide:Stop() end
+            bar.clip:Hide()
+        end
+        HideNativeMarks(bar.ends)
+        HideNativeMarks(bar.stops)
+    else
+        HideFixedRoute(bar)
+    end
+    if ns.Get("hideFlightYou") then HideFlightCenter(bar) end
+end
+
+local function NewRouteMarker(route)
+    local marker = CreateFrame("Button", nil, route)
+    marker:SetSize(POINT_SIZE + 6, POINT_SIZE + 6)
+    marker:EnableMouse(true)
+    marker.icon = marker:CreateTexture(nil, "OVERLAY")
+    marker.icon:SetTexture(STOP_ICON)
+    marker.icon:SetSize(POINT_SIZE, POINT_SIZE)
+    marker.icon:SetPoint("CENTER")
+    marker:SetScript("OnEnter", function(self)
+        if self.flightPointName then EUI.ShowWidgetTooltip(self, self.flightPointName) end
+    end)
+    marker:SetScript("OnLeave", function() EUI.HideWidgetTooltip() end)
+    route.marks[#route.marks + 1] = marker
+    return marker
+end
+
+local function FixedRoute(bar)
+    local route = bar.customTweaksRoute
+    if route then return route end
+    route = CreateFrame("Frame", nil, bar.over or bar)
+    route:SetAllPoints(bar)
+    route:EnableMouse(false)
+    route.marks = {}
+    bar.customTweaksRoute = route
+    return route
+end
+
+local function LayoutFixedRoute(bar, flight)
+    if not (bar and ns.Get("fixedFlightPoints") and flight and flight.info) then
+        HideFixedRoute(bar)
+        return
+    end
+    local points = flight.info.points
+    local count = points and #points or 0
+    if count == 0 then
+        HideFixedRoute(bar)
+        return
+    end
+
+    local route = FixedRoute(bar)
+    local levelOwner = bar.over or bar
+    route:SetFrameLevel(levelOwner:GetFrameLevel() + 1)
+    local width = bar:GetWidth()
+    if not width or width <= 0 then width = NativeGet("width", 300) end
+    local total = flight.info.yards
+    for index = 1, count do
+        local point = points[index]
+        local marker = route.marks[index] or NewRouteMarker(route)
+        local fraction
+        if total and total > 0 and point.yards then
+            fraction = math.max(0, math.min(1, point.yards / total))
+        else
+            fraction = count == 1 and 0 or (index - 1) / (count - 1)
+        end
+        marker.flightPointName = point.name or "Flight point"
+        marker:ClearAllPoints()
+        marker:SetPoint("CENTER", bar, "CENTER", (fraction - 0.5) * width, 0)
+        marker:SetAlpha(1)
+        marker:Show()
+    end
+    for index = count + 1, #route.marks do route.marks[index]:Hide() end
+    route:SetShown(bar:IsShown())
+end
+
+local function HasFutureIntermediate(flight, elapsed)
+    local info = flight and flight.info
+    local points = info and info.points
+    if not points or #points <= 2 or flight.early then return false end
+    local eta = flight.eta or flight.nativeETA
+    if not (eta and eta > 0 and info.yards and info.yards > 0) then return true end
+    local flown = math.max(0, math.min(1, elapsed / eta)) * info.yards
+    for index = 2, #points - 1 do
+        if not points[index].yards or points[index].yards > flown then return true end
+    end
+    return false
+end
+
+local function UpdateEarlyExit(bar, flight, elapsed)
+    local button = bar and bar.exit
+    if not (button and ns.Get("smartFlightExit")) then return end
+    local show = NativeGet("earlyExit", true) and HasFutureIntermediate(flight, elapsed)
+    button:SetEnabled(show)
+    button:SetAlpha(show and 1 or 0)
+    button:SetShown(show)
+end
+
+local function HideBlizzardFlightExit()
+    if not (ns.Get("hideBlizzardFlightExit") and UnitOnTaxi("player")) then return end
+    local button = _G.MainMenuBarVehicleLeaveButton
+    if button then button:Hide() end
+end
+
+local function ApplyRoutePresentation(flight, elapsed)
+    local bar = FlightBar()
+    if not bar then return end
+    SuppressNativeRoute(bar)
+    LayoutFixedRoute(bar, flight)
+    UpdateEarlyExit(bar, flight, elapsed or 0)
 end
 
 local function Median(values)
@@ -242,7 +374,7 @@ local function RestoreNativeDisplay(flight, restyle)
     if restyle then
         local timer = NativeTimer()
         if timer and timer.ApplyStyle then timer.ApplyStyle() end
-        if ns.Get("hideFlightYou") then HideFlightLabel() end
+        ApplyRoutePresentation(flight, GetTime() - flight.start)
     end
 end
 
@@ -300,16 +432,16 @@ local function UpdateLearnedDisplay(flight, elapsed)
         text:SetText(value)
     end
 
-    -- Replace the native route-strip schedule as well as the clock.  The static
-    -- hop lengths still determine each stop's share of the trip, but the learned
-    -- total decides when it crosses the centre marker.
+    -- Preserve the original moving-strip correction when the fixed-marker
+    -- overlay is explicitly disabled.
+    if ns.Get("fixedFlightPoints") then return end
     local info = flight.info
     local clip = bar.clip
     if not (clip and clip:IsShown() and info and info.yards and info.points and #info.points > 2) then return end
     if clip.glide then clip.glide:Stop() end
     local width = bar:GetWidth()
     if not (width and width > 0) then return end
-    local pps = width / 2 / LOOKAHEAD
+    local pps = width / 2 / NATIVE_LOOKAHEAD
     clip.pps = pps
     local travel = math.max(0, math.min(elapsed, flight.eta))
     clip.strip:ClearAllPoints()
@@ -339,6 +471,7 @@ local function FinishFlight(learn)
     local elapsed = GetTime() - flight.start
     if learn then RecordFlight(flight, elapsed) end
     RestoreNativeDisplay(flight, false)
+    HideFixedRoute(flight.bar or FlightBar())
 end
 
 local function StartFlight()
@@ -355,7 +488,10 @@ local function StartFlight()
         eta = learned and learned / mult or nil,
     }
     C_Timer.After(0, function()
-        if active and active.eta then ApplyLearnedDisplay(active) end
+        if not active then return end
+        if active.eta then ApplyLearnedDisplay(active) end
+        ApplyRoutePresentation(active, GetTime() - active.start)
+        HideBlizzardFlightExit()
     end)
 end
 
@@ -385,12 +521,8 @@ end
 
 function ns.ApplyFlightTweaks()
     HookFlightAPI()
-    if ns.Get("hideFlightYou") then
-        HideFlightLabel()
-    else
-        local timer = NativeTimer()
-        if timer and timer.ApplyStyle then timer.ApplyStyle() end
-    end
+    local timer = NativeTimer()
+    if timer and timer.ApplyStyle then timer.ApplyStyle() end
 
     if active then
         local learned = ns.Get("learnFlightTimes") and active.info.key and LearnedBase(active.info.key)
@@ -401,6 +533,8 @@ function ns.ApplyFlightTweaks()
             RestoreNativeDisplay(active, true)
         end
     end
+    ApplyRoutePresentation(active, active and (GetTime() - active.start) or 0)
+    HideBlizzardFlightExit()
 end
 
 local events = CreateFrame("Frame")
@@ -424,16 +558,17 @@ events:SetScript("OnEvent", function(_, event, ...)
 end)
 
 events:SetScript("OnUpdate", function(_, delta)
-    labelElapsed = labelElapsed + delta
-    if labelElapsed >= 0.20 then
-        labelElapsed = 0
-        if ns.Get("hideFlightYou") then HideFlightLabel() end
+    local flight = active
+    local elapsed = flight and (GetTime() - flight.start) or 0
+    routeElapsed = routeElapsed + delta
+    if routeElapsed >= 0.20 then
+        routeElapsed = 0
+        ApplyRoutePresentation(flight, elapsed)
+        HideBlizzardFlightExit()
     end
 
-    local flight = active
     if not flight then return end
     if UnitOnTaxi("player") then flight.sawTaxi = true end
-    local elapsed = GetTime() - flight.start
     if elapsed > 2 and not UnitOnTaxi("player") then
         FinishFlight(flight.sawTaxi and not flight.early)
         return

@@ -11,6 +11,9 @@ EUI._ModuleNS[ADDON_NAME] = ns
 
 local DEFAULTS = {
     hideFlightYou = true,
+    fixedFlightPoints = true,
+    smartFlightExit = true,
+    hideBlizzardFlightExit = true,
     learnFlightTimes = true,
     fadeChatLines = true,
     chatLineSeconds = 45,
@@ -899,4 +902,3 @@ if IsLoggedIn and IsLoggedIn() then
     driver:Show()
     C_Timer.After(0, ns.ApplyAll)
 end
-
