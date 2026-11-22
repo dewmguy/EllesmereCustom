@@ -45,6 +45,8 @@ local DEFAULTS = {
     auraDurationBarColor = { r = 0.05, g = 0.75, b = 0.58, a = 1 },
     auraDurationBarShowIcon = true,
     auraDurationBarShowStacks = true,
+    durableLootSession = true,
+    lootSessionTimeoutHours = 8,
 }
 ns.DEFAULTS = DEFAULTS
 
@@ -848,6 +850,7 @@ function ns.ApplyAll()
     if ns.ApplyCraftingCastIcon then ns.ApplyCraftingCastIcon() end
     if ns.ApplyQuestTimerTweaks then ns.ApplyQuestTimerTweaks() end
     if ns.ApplyAuraDurationBars then ns.ApplyAuraDurationBars() end
+    if ns.ApplyLootSessionTracker then ns.ApplyLootSessionTracker() end
     SyncPlayerRevealEvents()
     SyncGatheringTrackingEvents()
 
@@ -896,3 +899,4 @@ if IsLoggedIn and IsLoggedIn() then
     driver:Show()
     C_Timer.After(0, ns.ApplyAll)
 end
+

@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Update-safe personal aura bars, cast-bar, quest-tracker, minimap, unit-frame, flight timer, and chat refinements for EllesmereUI.
 ## Author: Jeremy Tilden
-## Version: 1.8.7
+## Version: 1.9.0
 ## Dependencies: EllesmereUI, EllesmereUIChat
 ## OptionalDeps: EllesmereUIForeverEssentials, EllesmereUIUnitFrames, EllesmereUIQuestTracker
 ## SavedVariables: EllesmereUICustomTweaksDB
@@ -13,6 +13,7 @@
 Core.lua
 CraftingCastIcon.lua
 QuestTimer.lua
+LootSessionTracker.lua
 AuraDurationBars.lua
 FlightTimer.lua
 Options.lua
