@@ -14,6 +14,20 @@ if not (EUI and EUI.IS_FOREVER) then return end
 local MONEY_ICON = "Interface\\Icons\\INV_Misc_Coin_02"
 local RATE_FLOOR = 60
 local COMMIT_INTERVAL = 60
+local COPPER_PER_GOLD = 10000
+local MOUNT_BASE_COST = 100 * COPPER_PER_GOLD
+
+-- The racial capital faction controls the WoW Forever riding discount.
+local HOME_FACTION_BY_RACE = {
+    Human = 72,       -- Stormwind
+    Dwarf = 47,       -- Ironforge
+    NightElf = 69,    -- Darnassus
+    Gnome = 54,       -- Gnomeregan Exiles
+    Orc = 76,         -- Orgrimmar
+    Scourge = 68,     -- Undercity
+    Tauren = 81,      -- Thunder Bluff
+    Troll = 530,      -- Darkspear Trolls
+}
 
 local nativeLoot
 local anchor
@@ -324,6 +338,34 @@ local function Duration(seconds)
     return string.format(EUI.L("%dh %dm"), math.floor(minutes / 60), minutes % 60)
 end
 
+local function EstimatedDuration(remaining, perSecond)
+    remaining = tonumber(remaining)
+    perSecond = tonumber(perSecond)
+    if not remaining or not perSecond or remaining <= 0 or perSecond <= 0 then
+        return "--"
+    end
+    local seconds = remaining / perSecond
+    if seconds ~= seconds or seconds == math.huge then return "--" end
+    return Duration(seconds)
+end
+
+local function MountCost()
+    local _, race = UnitRace and UnitRace("player")
+    if _G.issecretvalue and issecretvalue(race) then race = nil end
+    local factionID = race and HOME_FACTION_BY_RACE[race]
+    if not factionID then
+        factionID = UnitFactionGroup and UnitFactionGroup("player") == "Horde" and 76 or 72
+    end
+
+    local faction = C_Reputation and C_Reputation.GetFactionDataByID
+        and C_Reputation.GetFactionDataByID(factionID)
+    local reaction = faction and Plain(faction.reaction, "number")
+    -- Forever applies its racial-faction vendor discount at Honored and does
+    -- not deepen it at Revered or Exalted: 100g becomes 90g.
+    return reaction and reaction >= 5
+        and MOUNT_BASE_COST - 10 * COPPER_PER_GOLD or MOUNT_BASE_COST
+end
+
 local function FindAnchor()
     local elements = EUI._unlockRegisteredElements
     local element = elements and elements.EUI_LootFeed
@@ -375,8 +417,10 @@ local function EnsureSummary(parent)
     summary.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     summary.goldRate = Text(summary)
     summary.goldTotal = Text(summary)
+    summary.mountETA = Text(summary)
     summary.xpRate = Text(summary)
     summary.xpTotal = Text(summary)
+    summary.xpETA = Text(summary)
     summary.divider = summary:CreateTexture(nil, "OVERLAY")
     summary.divider:SetColorTexture(1, 1, 1, 0.18)
     summary.divider:SetWidth(1)
@@ -410,14 +454,25 @@ end
 local function ApplySummaryStyle(row, parent, loot)
     local width = loot.Get("width")
     local height = loot.Get("rowHeight")
+    local fontSize = loot.Get("textSize")
+    local etaFontSize = math.max(8, fontSize - 2)
+    local extraHeight = etaFontSize + 4
+    local summaryHeight = height + extraHeight
     local style = loot.Get("style")
     if style == "TRAY" then style = "BAR" end
     local barStyle, toast = style == "BAR", style == "TOAST"
     local barWidth = loot.Get("barWidth")
 
-    row:SetSize(width, height)
+    row:SetSize(width, summaryHeight)
     row:ClearAllPoints()
-    row:SetPoint(loot.Get("grow") == "UP" and "BOTTOMLEFT" or "TOPLEFT", parent)
+    if loot.Get("grow") == "UP" then
+        -- The native feed reserves one ordinary row for its pinned summary.
+        -- Grow the third line away from the loot rows so the extra height does
+        -- not overlap the first transient entry.
+        row:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 0, -extraHeight)
+    else
+        row:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, extraHeight)
+    end
 
     row.icon:ClearAllPoints()
     if barStyle then
@@ -457,25 +512,35 @@ local function ApplySummaryStyle(row, parent, loot)
         end
     end
 
-    local fontSize = loot.Get("textSize")
     for _, fontString in ipairs({ row.goldRate, row.goldTotal, row.xpRate, row.xpTotal }) do
         EUI.ApplyModuleFont(fontString, nil, fontSize, "essentials")
     end
+    EUI.ApplyModuleFont(row.mountETA, nil, etaFontSize, "essentials")
+    EUI.ApplyModuleFont(row.xpETA, nil, etaFontSize, "essentials")
     row.goldTotal:SetTextColor(0.7, 0.7, 0.7)
     row.xpTotal:SetTextColor(0.7, 0.7, 0.7)
+    row.mountETA:SetTextColor(0.55, 0.55, 0.55)
+    row.xpETA:SetTextColor(0.55, 0.55, 0.55)
 
     row.goldRate:ClearAllPoints()
     row.goldTotal:ClearAllPoints()
+    row.mountETA:ClearAllPoints()
     row.xpRate:ClearAllPoints()
     row.xpTotal:ClearAllPoints()
-    row.goldRate:SetPoint("BOTTOMLEFT", row.icon, "RIGHT", 6, 1)
+    row.xpETA:ClearAllPoints()
+    local edgeInset = summaryHeight / 2 - 3
+    row.goldRate:SetPoint("TOPLEFT", row.icon, "RIGHT", 6, edgeInset)
     row.goldRate:SetPoint("RIGHT", row.divider, "LEFT", -8, 0)
-    row.goldTotal:SetPoint("TOPLEFT", row.icon, "RIGHT", 6, -1)
+    row.goldTotal:SetPoint("LEFT", row.icon, "RIGHT", 6, 0)
     row.goldTotal:SetPoint("RIGHT", row.divider, "LEFT", -8, 0)
-    row.xpRate:SetPoint("BOTTOMLEFT", row.divider, "RIGHT", 8, 1)
+    row.mountETA:SetPoint("BOTTOMLEFT", row.icon, "RIGHT", 6, -edgeInset)
+    row.mountETA:SetPoint("RIGHT", row.divider, "LEFT", -8, 0)
+    row.xpRate:SetPoint("TOPLEFT", row.divider, "RIGHT", 8, edgeInset)
     row.xpRate:SetPoint("RIGHT", row, "RIGHT", -6, 0)
-    row.xpTotal:SetPoint("TOPLEFT", row.divider, "RIGHT", 8, -1)
+    row.xpTotal:SetPoint("LEFT", row.divider, "RIGHT", 8, 0)
     row.xpTotal:SetPoint("RIGHT", row, "RIGHT", -6, 0)
+    row.xpETA:SetPoint("BOTTOMLEFT", row.divider, "RIGHT", 8, -edgeInset)
+    row.xpETA:SetPoint("RIGHT", row, "RIGHT", -6, 0)
 end
 
 local function PaintSummary()
@@ -501,10 +566,22 @@ local function PaintSummary()
     local divisor = math.max(elapsed, RATE_FLOOR)
     local gross = s.coin + s.items
     local net = gross - s.spent
+    local goldPerSecond = gross / divisor
+    local mountCost = MountCost()
+    local wallet = Plain(GetMoney and GetMoney(), "number") or 0
+    local mountRemaining = math.max(0, mountCost - wallet)
+    local mountTime = mountRemaining == 0 and EUI.L("Ready")
+        or EstimatedDuration(mountRemaining, goldPerSecond)
+    local currentXP = Plain(UnitXP and UnitXP("player"), "number")
+    local maximumXP = Plain(UnitXPMax and UnitXPMax("player"), "number")
+    local xpRemaining = currentXP and maximumXP and math.max(0, maximumXP - currentXP) or 0
+    local xpPerSecond = s.xp / divisor
     row.goldRate:SetText(EUI.Lf("%s / hr", Money(gross / divisor * 3600)))
-    row.goldTotal:SetText(EUI.Lf("%s in %s", SessionMoney(net), Duration(elapsed)))
+    row.goldTotal:SetText(SessionMoney(net))
+    row.mountETA:SetText(EUI.Lf("%dg mount: %s", mountCost / COPPER_PER_GOLD, mountTime))
     row.xpRate:SetText(EUI.Lf("%s / hr", XP(s.xp / divisor * 3600)))
-    row.xpTotal:SetText(EUI.Lf("%s in %s", XP(s.xp), Duration(elapsed)))
+    row.xpTotal:SetText(XP(s.xp))
+    row.xpETA:SetText(EUI.Lf("Next level: %s", EstimatedDuration(xpRemaining, xpPerSecond)))
     row:Show()
 end
 
