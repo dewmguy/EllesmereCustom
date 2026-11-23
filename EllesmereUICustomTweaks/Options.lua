@@ -504,7 +504,7 @@ local function RegisterOptions()
         y = y - h
         _, h = W:DualRow(parent, y,
             Toggle("targetWhisperCommand", "Enable /tt Target Whisper",
-                "Use /tt followed by a message to whisper your targeted player immediately. Bare /tt opens chat already addressed to that target."),
+                "Type /tt and a space to enter Blizzard's addressed-whisper mode for your targeted player. Pasted /tt messages can still send immediately."),
             nil)
         y = y - h
 
