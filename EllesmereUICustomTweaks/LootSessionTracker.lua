@@ -12,6 +12,7 @@ local EUI = _G.EllesmereUI
 if not (EUI and EUI.IS_FOREVER) then return end
 
 local MONEY_ICON = "Interface\\Icons\\INV_Misc_Coin_02"
+local XP_ICON = "Interface\\Icons\\XP_Icon"
 local RATE_FLOOR = 60
 local COMMIT_INTERVAL = 60
 local COPPER_PER_GOLD = 10000
@@ -415,6 +416,10 @@ local function EnsureSummary(parent)
     summary.icon = summary:CreateTexture(nil, "ARTWORK", nil, 1)
     summary.icon:SetTexture(MONEY_ICON)
     summary.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    summary.xpIconBg = summary:CreateTexture(nil, "ARTWORK")
+    summary.xpIcon = summary:CreateTexture(nil, "ARTWORK", nil, 1)
+    summary.xpIcon:SetTexture(XP_ICON)
+    summary.xpIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     summary.goldRate = Text(summary)
     summary.goldTotal = Text(summary)
     summary.mountETA = Text(summary)
@@ -474,21 +479,30 @@ local function ApplySummaryStyle(row, parent, loot)
         row:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, extraHeight)
     end
 
+    local iconSize, iconLeft, iconTopInset
     row.icon:ClearAllPoints()
+    row.xpIcon:ClearAllPoints()
     if barStyle then
         row.bar:SetWidth(math.max(barWidth, 1))
         row.bar:SetShown(barWidth > 0)
-        row.icon:SetSize(height - 8, height - 8)
-        row.icon:SetPoint("LEFT", barWidth > 0 and barWidth + 5 or 4, 0)
+        iconSize = height - 8
+        iconLeft = barWidth > 0 and barWidth + 5 or 4
+        iconTopInset = 4
     elseif toast then
         row.bar:Hide()
-        row.icon:SetSize(height - 10, height - 10)
-        row.icon:SetPoint("LEFT", 6, 0)
+        iconSize = height - 10
+        iconLeft = 6
+        iconTopInset = 5
     else
         row.bar:Hide()
-        row.icon:SetSize(height, height)
-        row.icon:SetPoint("LEFT")
+        iconSize = height
+        iconLeft = 0
+        iconTopInset = 0
     end
+    row.icon:SetSize(iconSize, iconSize)
+    row.icon:SetPoint("TOPLEFT", row, "TOPLEFT", iconLeft, -iconTopInset)
+    row.xpIcon:SetSize(iconSize, iconSize)
+    row.xpIcon:SetPoint("TOPLEFT", row, "TOPLEFT", width / 2 + 8, -iconTopInset)
 
     local accent = EUI.ELLESMERE_GREEN
     row.bar:SetColorTexture(accent and accent.r or 0.05, accent and accent.g or 0.82,
@@ -499,6 +513,11 @@ local function ApplySummaryStyle(row, parent, loot)
     row.iconBg:SetPoint("BOTTOMRIGHT", row.icon, "BOTTOMRIGHT", 1, -1)
     row.iconBg:SetColorTexture(0, 0, 0, 1)
     row.iconBg:SetShown(barStyle or toast)
+    row.xpIconBg:ClearAllPoints()
+    row.xpIconBg:SetPoint("TOPLEFT", row.xpIcon, "TOPLEFT", -1, 1)
+    row.xpIconBg:SetPoint("BOTTOMRIGHT", row.xpIcon, "BOTTOMRIGHT", 1, -1)
+    row.xpIconBg:SetColorTexture(0, 0, 0, 1)
+    row.xpIconBg:SetShown(barStyle or toast)
 
     local borderSize = tonumber(loot.Get("borderSize")) or 0
     if EUI.PP and EUI.PP.UpdateBorder then
@@ -528,18 +547,19 @@ local function ApplySummaryStyle(row, parent, loot)
     row.xpRate:ClearAllPoints()
     row.xpTotal:ClearAllPoints()
     row.xpETA:ClearAllPoints()
-    local edgeInset = summaryHeight / 2 - 3
-    row.goldRate:SetPoint("TOPLEFT", row.icon, "RIGHT", 6, edgeInset)
+    local goldTextLeft = iconLeft + iconSize + 6
+    local xpTextLeft = width / 2 + 8 + iconSize + 6
+    row.goldRate:SetPoint("TOPLEFT", row, "TOPLEFT", goldTextLeft, -3)
     row.goldRate:SetPoint("RIGHT", row.divider, "LEFT", -8, 0)
-    row.goldTotal:SetPoint("LEFT", row.icon, "RIGHT", 6, 0)
+    row.goldTotal:SetPoint("LEFT", row, "LEFT", goldTextLeft, 0)
     row.goldTotal:SetPoint("RIGHT", row.divider, "LEFT", -8, 0)
-    row.mountETA:SetPoint("BOTTOMLEFT", row.icon, "RIGHT", 6, -edgeInset)
+    row.mountETA:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", goldTextLeft, 3)
     row.mountETA:SetPoint("RIGHT", row.divider, "LEFT", -8, 0)
-    row.xpRate:SetPoint("TOPLEFT", row.divider, "RIGHT", 8, edgeInset)
+    row.xpRate:SetPoint("TOPLEFT", row, "TOPLEFT", xpTextLeft, -3)
     row.xpRate:SetPoint("RIGHT", row, "RIGHT", -6, 0)
-    row.xpTotal:SetPoint("LEFT", row.divider, "RIGHT", 8, 0)
+    row.xpTotal:SetPoint("LEFT", row, "LEFT", xpTextLeft, 0)
     row.xpTotal:SetPoint("RIGHT", row, "RIGHT", -6, 0)
-    row.xpETA:SetPoint("BOTTOMLEFT", row.divider, "RIGHT", 8, -edgeInset)
+    row.xpETA:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", xpTextLeft, 3)
     row.xpETA:SetPoint("RIGHT", row, "RIGHT", -6, 0)
 end
 
