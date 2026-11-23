@@ -21,6 +21,7 @@ local DEFAULTS = {
     autoHideTabs = true,
     tabSeconds = 45,
     hideCollapseButtons = true,
+    targetWhisperCommand = true,
     channelInputBorder = true,
     inputBorderColorMode = "channel",
     inputBorderColor = { r = 1, g = 1, b = 1, a = 1 },

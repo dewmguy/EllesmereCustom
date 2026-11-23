@@ -502,6 +502,11 @@ local function RegisterOptions()
                 "Hides Blizzard's collapse and expand button attached to chat windows."),
             showBorder)
         y = y - h
+        _, h = W:DualRow(parent, y,
+            Toggle("targetWhisperCommand", "Enable /tt Target Whisper",
+                "Use /tt followed by a message to whisper your targeted player immediately. Bare /tt opens chat already addressed to that target."),
+            nil)
+        y = y - h
 
         local borderDisabled = function() return not ns.Get("channelInputBorder") end
         local function SetBorderColorMode(mode)
@@ -574,7 +579,7 @@ local function RegisterOptions()
         description = "Personal aura bars, quest-tracker, minimap, unit-frame, flight timer, and chat refinements for EllesmereUI.",
         pages = { "Tweaks" },
         buildPage = BuildPage,
-        searchTerms = "custom tweaks aura duration bars buffs filter spell timer status elvui quest tracker timed quest time remaining full width empty background color minimap gathering tracking herbs minerals player unit frame health mana eating drinking channeling flight timer you route fixed marker flight point hover early exit blizzard learn actual time clear chat fade history tabs collapse input border channel",
+        searchTerms = "custom tweaks aura duration bars buffs filter spell timer status elvui quest tracker timed quest time remaining full width empty background color minimap gathering tracking herbs minerals player unit frame health mana eating drinking channeling flight timer you route fixed marker flight point hover early exit blizzard learn actual time clear chat fade history tabs collapse input border channel target whisper tell tt",
         onReset = function()
             ns.Reset()
             if EUI.InvalidatePageCache then EUI:InvalidatePageCache() end
